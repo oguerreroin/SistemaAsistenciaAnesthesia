@@ -14,37 +14,48 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Executing remote SSH commands to deploy
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_SSH_HOST }}
-          username: ${{ secrets.VPS_SSH_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: 22
-          script: |
+      - name: Configure SSH agent and deploy
+        run: |
+          # 1. Crear el directorio .ssh y guardar la clave privada
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_vps
+          chmod 600 ~/.ssh/id_vps
+          
+          # 2. Agregar el host a known_hosts para evitar confirmación interactiva
+          ssh-keyscan -H "${{ secrets.VPS_SSH_HOST }}" >> ~/.ssh/known_hosts
+          
+          # 3. Conectarse vía SSH usando el cliente nativo y ejecutar comandos
+          echo "Conectando al VPS e iniciando despliegue..."
+          ssh -i ~/.ssh/id_vps -o StrictHostKeyChecking=no "${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}" << 'EOF'
             # Ir al directorio del proyecto
-            cd /var/www/sistema-asistencia || exit 1
+            cd /var/www/sistema-asistencia || { echo "Error: Carpeta /var/www/sistema-asistencia no encontrada"; exit 1; }
 
-            # Descartar cualquier cambio local accidental y hacer pull
+            # Limpiar cualquier residuo de git local y descargar cambios
+            echo "Descargando últimos cambios desde GitHub..."
             git reset --hard HEAD
-            git pull origin main
+            git pull origin main || { echo "Error al hacer git pull"; exit 1; }
 
-            # 1. Configurar y Compilar el Frontend
-            cd frontend
+            # A. Configurar y Compilar el Frontend
+            cd frontend || exit 1
             echo "Instalando dependencias del Frontend..."
-            npm install
-            echo "Compilando Frontend..."
-            npm run build
-
-            # 2. Configurar e Iniciar/Reiniciar el Backend con PM2
-            cd ../backend
-            echo "Instalando dependencias de producción del Backend..."
-            npm install --omit=dev
+            npm install || { echo "Error en npm install frontend"; exit 1; }
             
-            # Reiniciar la app con PM2 (si ya existe el proceso) o iniciarla usando el ecosistema
-            pm2 restart ecosystem.config.js || pm2 start ecosystem.config.js
+            echo "Compilando Frontend..."
+            npm run build || { echo "Error al compilar el frontend"; exit 1; }
+
+            # B. Configurar e Iniciar/Reiniciar el Backend con PM2
+            cd ../backend || exit 1
+            echo "Instalando dependencias de producción del Backend..."
+            npm install --omit=dev || { echo "Error en npm install backend"; exit 1; }
+            
+            # Reiniciar o Iniciar la app con PM2
+            echo "Reiniciando backend con PM2..."
+            pm2 restart ecosystem.config.js || pm2 start ecosystem.config.js || { echo "Error al iniciar con PM2"; exit 1; }
             
             # Guardar el estado de PM2
             pm2 save
             
-            echo "¡Despliegue de GitOps completado con éxito en el VPS!"
+            echo "=========================================================="
+            echo "🎉 ¡Despliegue de GitOps completado con éxito en el VPS!"
+            echo "=========================================================="
+          EOF
