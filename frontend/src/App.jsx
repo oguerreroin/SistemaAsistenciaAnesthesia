@@ -20,10 +20,16 @@ import {
   ArrowRightLeft,
   X,
   FileSpreadsheet,
-  FileDown
+  FileDown,
+  Wifi,
+  Compass,
+  Activity,
+  ShieldCheck,
+  CheckCircle,
+  HelpCircle
 } from 'lucide-react';
 
-// Ajustar direcciones de API de forma dinamica para desarrollo y produccion
+// Ajustar direcciones de API de forma dinámica para desarrollo y producción
 const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
   ? 'http://localhost:5000/api' 
   : '/api';
@@ -55,11 +61,12 @@ function App() {
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState(null); // { tipo, usuario, sede, hora, distancia, fueraDeRango }
   const [countdown, setCountdown] = useState(3);
+  const [toasts, setToasts] = useState([]);
 
-  // --- TIEMPO REAL (NTP / LOCAL) ---
+  // --- TIEMPO REAL ---
   const [currentTime, setCurrentTime] = useState(new Date());
 
-  // --- CATALOGOS ---
+  // --- CATÁLOGOS ---
   const [sedes, setSedes] = useState([]);
 
   // --- PANEL ADMINISTRATIVO PROTEGIDO ---
@@ -71,21 +78,31 @@ function App() {
   const [rangoHistorial, setRangoHistorial] = useState('hoy'); // hoy, semana, mes
   const [filtroSede, setFiltroSede] = useState('');
   const [filtroTexto, setFiltroTexto] = useState('');
+  const [historialLoading, setHistorialLoading] = useState(false);
   
-  // Modal de visualizacion de foto de webcam
+  // Modal de visualización de foto de webcam
   const [selectedPhoto, setSelectedPhoto] = useState(null);
 
-  // Creacion de nuevos usuarios (Admin)
+  // Creación de nuevos usuarios (Admin)
   const [nuevoNombre, setNuevoNombre] = useState('');
   const [nuevoDni, setNuevoDni] = useState('');
   const [nuevoRol, setNuevoRol] = useState('PERSONAL');
   const [nuevoPin, setNuevoPin] = useState('');
   const [adminSuccessMsg, setAdminSuccessMsg] = useState('');
 
-  // Refs de video y canvas para biometria facial ligera
+  // Refs de video y canvas para biometría facial ligera
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const cameraStreamRef = useRef(null);
+
+  // --- SISTEMA PREMIUM DE TOAST NOTIFICATIONS ---
+  const showToast = (message, type = 'info') => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 4500);
+  };
 
   // --- EFECTO TIEMPO REAL ---
   useEffect(() => {
@@ -95,13 +112,12 @@ function App() {
     return () => clearInterval(timer);
   }, []);
 
-  // --- DETECTAR CARGA DE SEDES CLINICAS ---
+  // --- DETECTAR CARGA DE SEDES CLÍNICAS ---
   useEffect(() => {
     cargarSedes();
   }, []);
 
   // --- CONFIGURACIÓN AUTOMÁTICA DEL ROUTER / STATE MACHINE ---
-  // Decidir en que pantalla se encuentra el usuario basandonos en el estado secuencial
   let currentScreen = 'LOGIN'; // Pantalla 1
   if (isAdminMode) {
     currentScreen = adminLoggedIn ? 'ADMIN_DASHBOARD' : 'ADMIN_LOGIN';
@@ -150,6 +166,7 @@ function App() {
     setPin('');
     setFocusedField('dni');
     setErrorMessage('');
+    showToast('Sesión cerrada correctamente.', 'info');
   };
 
   // --- CONTROLADOR DE SEDES ---
@@ -162,7 +179,8 @@ function App() {
       }
     } catch (err) {
       console.error('Error al cargar sedes:', err);
-      setErrorMessage('No se pudo establecer conexion para cargar las sedes.');
+      setErrorMessage('No se pudo establecer conexión para cargar las sedes.');
+      showToast('Error de red al conectar con el servidor de sedes.', 'error');
     }
   };
 
@@ -172,11 +190,13 @@ function App() {
     setErrorMessage('');
 
     if (!dni || dni.length < 8) {
-      setErrorMessage('Por favor ingrese un DNI valido de 8 digitos.');
+      setErrorMessage('Por favor ingrese un DNI válido de 8 dígitos.');
+      showToast('DNI incompleto.', 'warning');
       return;
     }
     if (!pin || pin.length < 4) {
-      setErrorMessage('Por favor ingrese su PIN de marcacion.');
+      setErrorMessage('Por favor ingrese su PIN de marcación.');
+      showToast('PIN incompleto.', 'warning');
       return;
     }
 
@@ -190,34 +210,51 @@ function App() {
 
       const data = await res.json();
       if (res.ok && data.success) {
-        // Guardar sesion de trabajador e ir a Selección de Sede (Pantalla 2)
         localStorage.setItem('currentUser', JSON.stringify(data.user));
         setCurrentUser(data.user);
         setErrorMessage('');
+        showToast(`Bienvenido(a), ${data.user.nombre.split(' ')[0]}`, 'success');
       } else {
         setErrorMessage(data.error || 'Credenciales de acceso incorrectas.');
+        showToast('Acceso denegado. Verifique sus credenciales.', 'error');
       }
     } catch (err) {
       console.error(err);
-      setErrorMessage('Error en el servidor al intentar iniciar sesion.');
+      setErrorMessage('Error en el servidor al intentar iniciar sesión.');
+      showToast('Error de conexión con el backend.', 'error');
     } finally {
       setLoginLoading(false);
     }
   };
 
-  // --- SELECCION DE SEDE CLINICA (PANTALLA 2) ---
+  // --- SELECCIÓN DE SEDE CLÍNICA (PANTALLA 2) ---
   const handleSedeSelect = (sedeId) => {
     localStorage.setItem('activeSedeId', sedeId);
     setActiveSedeId(sedeId);
     setErrorMessage('');
+    if (sedeId) {
+      const sedeName = sedes.find(s => s.id.toString() === sedeId)?.nombre || 'Sede';
+      showToast(`Sede establecida: ${sedeName}`, 'info');
+    }
   };
 
-  // --- CONTROLADORES CÁMARA FRONTAL NATIVA (PANTALLA 3) ---
+  // --- CONTROLADORES CÁMARA FRONTAL NATIVA (PANTALLA 3) CON SÓLIDO DIAGNÓSTICO ---
   const iniciarCamara = async () => {
     try {
       detenerCamara();
+      
+      // Validar si cuenta con APIs de MediaDevices
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        if (window.isSecureContext === false) {
+          throw new Error('SECURE_CONTEXT_ERROR');
+        }
+        throw new Error('NO_MEDIA_DEVICES');
+      }
+
+      showToast('Iniciando biometría...', 'info');
       let stream;
       try {
+        // Intento 1: Cámara frontal nativa de alta fidelidad
         stream = await navigator.mediaDevices.getUserMedia({
           video: { 
             facingMode: 'user', 
@@ -227,8 +264,9 @@ function App() {
           audio: false
         });
       } catch (err) {
-        console.warn('Fallo al iniciar camara con facingMode: user. Intentando fallback basico:', err);
-        // Fallback robusto que solicita cualquier camara de video disponible sin restricciones
+        console.warn('Fallo cámara frontal estricta, intentando fallback de emergencia:', err);
+        showToast('Cámara frontal no disponible, utilizando cámara por defecto.', 'warning');
+        // Fallback 1: Cualquier cámara web disponible (laptops o webcams externas)
         stream = await navigator.mediaDevices.getUserMedia({
           video: true,
           audio: false
@@ -241,10 +279,27 @@ function App() {
       cameraStreamRef.current = stream;
       setCameraActive(true);
       setErrorMessage('');
+      showToast('Cámara activa y lista.', 'success');
     } catch (err) {
       console.error('Error de acceso a camara:', err);
       setCameraActive(false);
-      setErrorMessage('No se puede activar la camara frontal. Permita el acceso en el navegador.');
+      
+      let errorText = 'No se puede activar la cámara frontal. Permita el acceso en el navegador.';
+      
+      if (err.message === 'SECURE_CONTEXT_ERROR') {
+        errorText = 'Entorno Inseguro. El navegador bloquea la cámara por políticas HTTP. Acceda utilizando HTTPS (ej. https://asistenciahc.tayka.net).';
+      } else if (err.message === 'NO_MEDIA_DEVICES') {
+        errorText = 'No se detectó ningún hardware de cámara o captura en este dispositivo.';
+      } else if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        errorText = 'Permiso denegado. Haga clic en el candado de la barra de direcciones y active los permisos de "Cámara".';
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        errorText = 'No se encontró hardware de cámara compatible conectado a este dispositivo.';
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        errorText = 'La cámara está siendo bloqueada o utilizada por otra aplicación (Zoom, Teams, etc.). Ciérrela e intente de nuevo.';
+      }
+      
+      setErrorMessage(errorText);
+      showToast('Error al iniciar cámara.', 'error');
     }
   };
 
@@ -265,94 +320,154 @@ function App() {
         canvas.height = video.videoHeight || 480;
         
         const ctx = canvas.getContext('2d');
+        // Efecto espejo para el canvas biométrico
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        // Reset de transformaciones
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
         
         canvas.toBlob((blob) => {
           resolve(blob);
-        }, 'image/jpeg', 0.85); // 85% calidad ideal para ahorrar disco de 2GB VPS
+        }, 'image/jpeg', 0.85); // Alta calidad ideal con compresión para el VPS
       } else {
         resolve(null);
       }
     });
   };
 
-  // --- REGISTRO DE ASISTENCIA UNIFICADO (FOTO + GPS + USER_ID) ---
+  // --- OBTENER GEOLOCALIZACIÓN HÍBRIDA MULTI-DISPOSITIVO ---
+  const obtenerGeolocalizacionHibrida = () => {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error('La geolocalización no está soportada por su navegador.'));
+        return;
+      }
+
+      showToast('Obteniendo coordenadas satelitales...', 'info');
+
+      // Intento 1: Alta precisión satelital con timeout corto
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          showToast('Ubicación obtenida con alta precisión.', 'success');
+          resolve(position);
+        },
+        (err) => {
+          if (err.code === err.PERMISSION_DENIED) {
+            // Si el usuario denegó explícitamente el permiso, fallar de inmediato
+            reject(err);
+            return;
+          }
+
+          console.warn('Fallo GPS satelital o lento, intentando triangulación híbrida...', err);
+          showToast('GPS débil. Conmutando a red WiFi/móvil para evitar timeout...', 'warning');
+
+          // Fallback 1: Baja precisión con tiempo amplio (muy rápido en interiores)
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              showToast('Ubicación obtenida por redes híbridas.', 'success');
+              resolve(position);
+            },
+            (err2) => {
+              reject(err2);
+            },
+            { 
+              enableHighAccuracy: false, 
+              timeout: 10000, 
+              maximumAge: 60000 // Permitir coordenadas de hasta 1 minuto
+            }
+          );
+        },
+        { 
+          enableHighAccuracy: true, 
+          timeout: 6000, // Esperar máximo 6 segundos por satélites
+          maximumAge: 0 
+        }
+      );
+    });
+  };
+
+  // --- REGISTRO DE ASISTENCIA UNIFICADO ---
   const procesarMarcado = async () => {
     setErrorMessage('');
     if (!currentUser) {
-      setErrorMessage('Sesion expirada. Inicie sesion de nuevo.');
+      setErrorMessage('Sesión expirada. Inicie sesión de nuevo.');
+      showToast('Sesión inválida.', 'error');
       return;
     }
     if (!activeSedeId) {
-      setErrorMessage('Seleccione una sede clinica.');
+      setErrorMessage('Seleccione una sede clínica.');
+      showToast('Falta sede.', 'warning');
       return;
     }
     if (!cameraActive) {
-      setErrorMessage('Se requiere acceso de camara activa para registrar asistencia.');
+      setErrorMessage('Se requiere acceso de cámara activa para registrar asistencia.');
+      showToast('Cámara inactiva.', 'warning');
       return;
     }
 
     setMarkingLoading(true);
 
-    // Capturar geolocalizacion del navegador en tiempo real
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const { latitude, longitude } = pos.coords;
+    try {
+      const pos = await obtenerGeolocalizacionHibrida();
+      const { latitude, longitude } = pos.coords;
 
-        try {
-          const fotoBlob = await obtenerFotoBlob();
-          if (!fotoBlob) {
-            throw new Error('Fallo la captura de la webcam frontal.');
-          }
-
-          // Crear FormData con los campos exactos solicitados
-          const formData = new FormData();
-          formData.append('usuario_id', currentUser.id.toString());
-          formData.append('sede_id', activeSedeId);
-          formData.append('latitud', latitude.toString());
-          formData.append('longitud', longitude.toString());
-          formData.append('foto', fotoBlob, `captura_${currentUser.dni}.jpg`);
-
-          const response = await fetch(`${API_BASE}/asistencia/marcar`, {
-            method: 'POST',
-            body: formData,
-          });
-
-          const result = await response.json();
-
-          if (response.ok && result.success) {
-            // Ir a Pantalla 4 (Exito y Auto-logout)
-            const horaFormateada = new Date(result.data.fecha_hora).toLocaleTimeString('es-PE', { hour12: false });
-            setSuccessMessage({
-              tipo: result.data.tipo_marcado,
-              usuario: result.data.usuario,
-              rol: result.data.rol,
-              sede: result.data.sede,
-              hora: horaFormateada,
-              distancia: result.data.distancia_metros,
-              fueraDeRango: result.data.fuera_de_rango
-            });
-          } else {
-            setErrorMessage(result.error || 'Error al procesar su marcado.');
-          }
-        } catch (err) {
-          console.error(err);
-          setErrorMessage('Error de red. No se pudo registrar la marcacion.');
-        } finally {
-          setMarkingLoading(false);
-        }
-      },
-      (geoError) => {
-        console.error('Error GPS:', geoError);
-        setMarkingLoading(false);
-        setErrorMessage('Servicio de geolocalizacion (GPS) bloqueado. Active su GPS y de permisos de ubicacion en el navegador.');
-      },
-      { 
-        enableHighAccuracy: true, 
-        timeout: 9000, 
-        maximumAge: 0 
+      const fotoBlob = await obtenerFotoBlob();
+      if (!fotoBlob) {
+        throw new Error('Fallo la captura de la webcam frontal.');
       }
-    );
+
+      // Crear FormData
+      const formData = new FormData();
+      formData.append('usuario_id', currentUser.id.toString());
+      formData.append('sede_id', activeSedeId);
+      formData.append('latitud', latitude.toString());
+      formData.append('longitud', longitude.toString());
+      formData.append('foto', fotoBlob, `captura_${currentUser.dni}.jpg`);
+
+      showToast('Enviando datos al servidor central...', 'info');
+
+      const response = await fetch(`${API_BASE}/asistencia/marcar`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        const horaFormateada = new Date(result.data.fecha_hora).toLocaleTimeString('es-PE', { hour12: false });
+        setSuccessMessage({
+          tipo: result.data.tipo_marcado,
+          usuario: result.data.usuario,
+          rol: result.data.rol,
+          sede: result.data.sede,
+          hora: horaFormateada,
+          distancia: result.data.distancia_metros,
+          fueraDeRango: result.data.fuera_de_rango
+        });
+        showToast('¡Asistencia registrada con éxito!', 'success');
+      } else {
+        setErrorMessage(result.error || 'Error al procesar su marcado.');
+        showToast(result.error || 'Error en el registro.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      
+      let errorDesc = 'Error de red. No se pudo registrar la marcación.';
+      if (err.code === 1) {
+        errorDesc = 'Acceso a ubicación denegado. Permita los permisos de "Ubicación" desde el candado del navegador.';
+        showToast('Permiso de GPS bloqueado.', 'error');
+      } else if (err.code === 3 || err.message?.includes('timeout')) {
+        errorDesc = 'Se agotó el tiempo de espera del GPS. Salga a un espacio abierto o active WiFi e intente de nuevo.';
+        showToast('Timeout de Geolocalización.', 'error');
+      } else {
+        showToast('Error en la marcación.', 'error');
+      }
+      
+      setErrorMessage(errorDesc);
+    } finally {
+      setMarkingLoading(false);
+    }
   };
 
   // --- TECLADO VIRTUAL PIN-PAD KIOSKO TÁCTIL ---
@@ -363,6 +478,7 @@ function App() {
         setDni(nuevoDni);
         if (nuevoDni.length === 8) {
           setFocusedField('pin');
+          showToast('DNI completo. Digite su PIN.', 'info');
         }
       }
     } else if (focusedField === 'pin') {
@@ -386,6 +502,7 @@ function App() {
     } else if (focusedField === 'pin') {
       setPin('');
     }
+    showToast('Campo limpiado.', 'info');
   };
 
   // --- CONTROLADORES DE ACCESO ADMINISTRATIVO ---
@@ -395,6 +512,7 @@ function App() {
     
     if (!adminDni || !adminPin) {
       setErrorMessage('Complete las credenciales del Administrador.');
+      showToast('Credenciales incompletas.', 'warning');
       return;
     }
 
@@ -409,23 +527,28 @@ function App() {
       if (res.ok && data.success) {
         if (data.user.rol !== 'ADMIN') {
           setErrorMessage('Acceso denegado. Rol administrativo no verificado.');
+          showToast('Rol no autorizado.', 'error');
           return;
         }
         setAdminLoggedIn(true);
         setErrorMessage('');
         setAdminDni('');
         setAdminPin('');
+        showToast('Acceso administrador autorizado.', 'success');
         cargarHistorialMarcaciones();
       } else {
-        setErrorMessage(data.error || 'Credenciales administrativas invalidas.');
+        setErrorMessage(data.error || 'Credenciales administrativas inválidas.');
+        showToast('Acceso administrador denegado.', 'error');
       }
     } catch (err) {
       console.error(err);
       setErrorMessage('Error al conectar con la base de datos de administradores.');
+      showToast('Error de conexión central.', 'error');
     }
   };
 
   const cargarHistorialMarcaciones = async () => {
+    setHistorialLoading(true);
     try {
       let url = `${API_BASE}/asistencia/historial?rango=${rangoHistorial}`;
       if (filtroSede) url += `&sede_id=${filtroSede}`;
@@ -437,6 +560,9 @@ function App() {
       }
     } catch (err) {
       console.error(err);
+      showToast('Fallo al obtener historial.', 'error');
+    } finally {
+      setHistorialLoading(false);
     }
   };
 
@@ -447,14 +573,16 @@ function App() {
     }
   }, [rangoHistorial, filtroSede, adminLoggedIn]);
 
-  // --- EXPORTACIONES DEL ADMINISTRADOR (MEMORIA VPS OPTIMIZADA) ---
+  // --- EXPORTACIONES DEL ADMINISTRADOR ---
   const exportarExcel = () => {
+    showToast('Generando reporte Excel...', 'info');
     let url = `${API_BASE}/asistencia/exportar/excel?rango=${rangoHistorial}`;
     if (filtroSede) url += `&sede_id=${filtroSede}`;
     window.open(url, '_blank');
   };
 
   const exportarPDF = () => {
+    showToast('Generando reporte PDF SUNAFIL...', 'info');
     let url = `${API_BASE}/asistencia/exportar/pdf?rango=${rangoHistorial}`;
     if (filtroSede) url += `&sede_id=${filtroSede}`;
     window.open(url, '_blank');
@@ -468,6 +596,7 @@ function App() {
 
     if (!nuevoNombre || !nuevoDni || !nuevoPin) {
       setErrorMessage('Todos los campos son obligatorios para crear usuario.');
+      showToast('Complete los campos.', 'warning');
       return;
     }
 
@@ -485,17 +614,20 @@ function App() {
 
       const data = await res.json();
       if (res.ok && data.success) {
-        setAdminSuccessMsg(`¡Usuario ${data.data.nombre} creado con exito!`);
+        setAdminSuccessMsg(`¡Usuario ${data.data.nombre} creado con éxito!`);
+        showToast('Médico/Colaborador registrado.', 'success');
         setNuevoNombre('');
         setNuevoDni('');
         setNuevoPin('');
         setNuevoRol('PERSONAL');
       } else {
         setErrorMessage(data.error || 'Error al crear usuario.');
+        showToast('No se pudo crear el usuario.', 'error');
       }
     } catch (err) {
       console.error(err);
       setErrorMessage('Error de red al intentar registrar usuario.');
+      showToast('Fallo de conexión.', 'error');
     }
   };
 
@@ -511,11 +643,38 @@ function App() {
   });
 
   return (
-    <div className="min-h-screen p-4 md:p-8 flex flex-col justify-between max-w-7xl mx-auto">
+    <div className="min-h-screen p-4 md:p-6 flex flex-col justify-between max-w-7xl mx-auto">
       
-      {/* --- HEADER SUPERIOR --- */}
-      <header className="flex flex-col sm:flex-row justify-between items-center py-4 mb-4 border-b border-slate-800 gap-4">
-        <div className="flex items-center gap-3">
+      {/* Contenedor de Toasts Flotantes */}
+      <div className="fixed bottom-5 right-5 z-[100] flex flex-col gap-2 max-w-sm w-full pointer-events-none">
+        {toasts.map(t => (
+          <div 
+            key={t.id} 
+            className={`toast-notification pointer-events-auto p-4 rounded-xl shadow-lg border flex items-center gap-3 bg-slate-950/95 backdrop-blur-md transition-all duration-300 ${
+              t.type === 'success' ? 'border-emerald-500/30 text-emerald-300' :
+              t.type === 'error' ? 'border-red-500/30 text-red-300' :
+              t.type === 'warning' ? 'border-amber-500/30 text-amber-300' :
+              'border-indigo-500/30 text-indigo-300'
+            }`}
+          >
+            {t.type === 'success' && <CheckCircle className="h-5 w-5 shrink-0 text-emerald-400" />}
+            {t.type === 'error' && <ShieldAlert className="h-5 w-5 shrink-0 text-red-400" />}
+            {t.type === 'warning' && <AlertTriangle className="h-5 w-5 shrink-0 text-amber-400" />}
+            {t.type === 'info' && <Clock className="h-5 w-5 shrink-0 text-indigo-400" />}
+            <span className="text-xs font-semibold flex-1">{t.message}</span>
+            <button 
+              onClick={() => setToasts(prev => prev.filter(item => item.id !== t.id))}
+              className="text-slate-400 hover:text-white cursor-pointer transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {/* --- HEADER SUPERIOR SAAS --- */}
+      <header className="flex flex-col md:flex-row justify-between items-center py-4 mb-6 border-b border-slate-800 gap-4">
+        <div className="flex items-center gap-4">
           <div className="h-12 w-12 rounded-xl bg-white p-1 flex items-center justify-center shadow-lg shadow-cyan-500/20 overflow-hidden">
             <img src="/logo.png" alt="Anesthesia Healthcare Logo" className="h-full w-full object-contain" />
           </div>
@@ -523,12 +682,15 @@ function App() {
             <h1 className="text-xl font-bold tracking-tight text-white m-0 flex items-center gap-2">
               Anesthesia Healthcare <span className="text-indigo-400 text-sm font-semibold">v2.0 MVP</span>
             </h1>
-            <p className="text-xs text-slate-400 m-0">Control Biométrico de Asistencia Médica</p>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <p className="text-[10px] text-emerald-400 m-0 font-bold uppercase tracking-wider">Servicio en Línea (VPS-TLS)</p>
+            </div>
           </div>
         </div>
 
-        {/* Reloj Digital en tiempo real */}
-        <div className="flex items-center gap-6 glass-panel py-2 px-4">
+        {/* Reloj Digital y Calendario Integrados */}
+        <div className="flex items-center gap-4 md:gap-6 glass-panel py-2.5 px-5">
           <div className="flex items-center gap-2 text-slate-300">
             <Calendar className="h-4 w-4 text-indigo-400" />
             <span className="text-xs font-semibold">
@@ -542,7 +704,7 @@ function App() {
           </div>
         </div>
 
-        {/* Boton Panel Administrativo */}
+        {/* Botón Panel Administrativo */}
         <button
           onClick={() => {
             setErrorMessage('');
@@ -550,21 +712,22 @@ function App() {
             if (adminLoggedIn) {
               setAdminLoggedIn(false);
               setIsAdminMode(false);
+              showToast('Saliendo del panel administrativo.', 'info');
             } else {
               setIsAdminMode(!isAdminMode);
             }
           }}
-          className="flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg border transition-colors glass-panel border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/10 cursor-pointer"
+          className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-lg border transition-colors glass-panel border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/10 cursor-pointer"
         >
           {adminLoggedIn ? (
             <>
-              <LogOut className="h-3.5 w-3.5" />
+              <LogOut className="h-3.5 w-3.5 text-rose-400" />
               Cerrar Dashboard
             </>
           ) : (
             <>
-              <Settings className="h-3.5 w-3.5" />
-              {isAdminMode ? 'Volver al Kiosko' : 'Panel del Administrador'}
+              <Settings className="h-3.5 w-3.5 text-indigo-400" />
+              {isAdminMode ? 'Volver al Kiosko' : 'Panel de Administración'}
             </>
           )}
         </button>
@@ -575,13 +738,13 @@ function App() {
         
         {/* Banner de errores del sistema */}
         {errorMessage && (
-          <div className="glass-panel border-red-500/30 bg-red-950/20 text-red-300 p-4 mb-6 rounded-xl flex items-start gap-3 shadow-lg shadow-red-500/5 max-w-lg mx-auto w-full">
+          <div className="glass-panel border-red-500/30 bg-red-950/20 text-red-300 p-4 mb-6 rounded-xl flex items-start gap-3 shadow-lg shadow-red-500/5 max-w-lg mx-auto w-full animate-scale-in">
             <ShieldAlert className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
-            <div>
-              <h4 className="text-sm font-bold text-red-200 m-0">Error en Operación</h4>
-              <p className="text-xs text-red-300/90 m-0 mt-1">{errorMessage}</p>
+            <div className="flex-1">
+              <h4 className="text-sm font-bold text-red-200 m-0">Validación de Seguridad</h4>
+              <p className="text-xs text-red-300/90 m-0 mt-1 leading-relaxed">{errorMessage}</p>
             </div>
-            <button className="ml-auto text-red-400 hover:text-red-200 cursor-pointer" onClick={() => setErrorMessage('')}>
+            <button className="text-red-400 hover:text-red-200 cursor-pointer transition-colors" onClick={() => setErrorMessage('')}>
               <X className="h-4 w-4" />
             </button>
           </div>
@@ -594,40 +757,56 @@ function App() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 max-w-5xl mx-auto w-full items-center">
             
             {/* Columna Izquierda: Mensaje de Bienvenida */}
-            <div className="lg:col-span-7 flex flex-col gap-4 text-center lg:text-left pr-4">
+            <div className="lg:col-span-7 flex flex-col gap-5 text-center lg:text-left pr-4">
+              <span className="inline-flex self-center lg:self-start items-center gap-1.5 px-3 py-1 text-[10px] font-bold text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 rounded-full tracking-wider uppercase">
+                <ShieldCheck className="h-3.5 w-3.5 text-indigo-400" /> Plataforma de Asistencia Médica
+              </span>
               <h2 className="text-4xl font-extrabold text-white leading-tight">
-                Control de Asistencia <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-300">Inteligente</span>
+                Control Biométrico y Georreferenciado <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-300">Anesthesia Healthcare</span>
               </h2>
-              <p className="text-sm text-slate-300/90 max-w-lg leading-relaxed">
-                Sistema seguro para medicos y personal asistencial. Ingrese sus credenciales de 8 digitos de DNI y PIN de seguridad para continuar con la verificacion GPS.
+              <p className="text-sm text-slate-400 max-w-lg leading-relaxed">
+                Kiosko inteligente homologado para el registro inalterable de asistencia de médicos y personal. Valida su identidad vía reconocimiento facial y certifica sus coordenadas por GPS.
               </p>
               
-              <div className="flex gap-4 justify-center lg:justify-start mt-2">
-                <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800 flex items-center gap-2">
-                  <MapPin className="text-indigo-400 h-5 w-5" />
+              <div className="flex flex-wrap gap-4 justify-center lg:justify-start mt-2">
+                <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800 flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-lg bg-indigo-500/10 flex items-center justify-center">
+                    <MapPin className="text-indigo-400 h-5 w-5" />
+                  </div>
                   <div className="text-left">
-                    <span className="text-[9px] font-bold text-slate-500 block uppercase">Geolocalización</span>
-                    <span className="text-xs font-bold text-white">Nativa del Dispositivo</span>
+                    <span className="text-[9px] font-bold text-slate-500 block uppercase">Geofencing GPS</span>
+                    <span className="text-xs font-bold text-slate-200">Precisión Híbrida</span>
                   </div>
                 </div>
-                <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800 flex items-center gap-2">
-                  <Camera className="text-emerald-400 h-5 w-5" />
+                <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800 flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                    <Camera className="text-emerald-400 h-5 w-5" />
+                  </div>
                   <div className="text-left">
-                    <span className="text-[9px] font-bold text-slate-500 block uppercase">Biometría</span>
-                    <span className="text-xs font-bold text-white">Cámara Web Frontal</span>
+                    <span className="text-[9px] font-bold text-slate-500 block uppercase">Reconocimiento</span>
+                    <span className="text-xs font-bold text-slate-200">Cámara Frontal Nativa</span>
+                  </div>
+                </div>
+                <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800 flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-lg bg-cyan-500/10 flex items-center justify-center">
+                    <ShieldCheck className="text-cyan-400 h-5 w-5" />
+                  </div>
+                  <div className="text-left">
+                    <span className="text-[9px] font-bold text-slate-500 block uppercase">SUNAFIL Auditable</span>
+                    <span className="text-xs font-bold text-slate-200">Encriptación SHA-256</span>
                   </div>
                 </div>
               </div>
             </div>
 
             {/* Columna Derecha: Formulario + Keypad */}
-            <div className="lg:col-span-5">
+            <div className="lg:col-span-5 w-full">
               <div className="glass-panel p-6 glass-panel-primary flex flex-col gap-4">
                 <div className="text-center flex flex-col items-center">
                   <div className="h-16 w-16 rounded-2xl bg-white p-1.5 mb-3 flex items-center justify-center shadow-lg shadow-cyan-500/10 overflow-hidden">
                     <img src="/logo.png" alt="Anesthesia Healthcare Logo" className="h-full w-full object-contain" />
                   </div>
-                  <h3 className="text-lg font-extrabold text-white tracking-wide uppercase m-0">Acceso de Personal</h3>
+                  <h3 className="text-base font-extrabold text-white tracking-wide uppercase m-0">Acceso de Personal</h3>
                   <p className="text-xs text-slate-400 mt-1">Identifíquese para registrar asistencia</p>
                 </div>
 
@@ -639,7 +818,7 @@ function App() {
                     className={`kiosk-input-container ${focusedField === 'dni' ? 'focused' : ''}`}
                   >
                     <label className="text-[10px] font-bold text-slate-400 block mb-1 uppercase tracking-wider">
-                      DNI de Colaborador {focusedField === 'dni' && <span className="text-indigo-400 animate-pulse">(Escribiendo)</span>}
+                      DNI de Colaborador {focusedField === 'dni' && <span className="text-indigo-400 animate-pulse font-bold">(Escribiendo)</span>}
                     </label>
                     <div className="relative">
                       <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
@@ -661,7 +840,7 @@ function App() {
                     className={`kiosk-input-container ${focusedField === 'pin' ? 'focused' : ''}`}
                   >
                     <label className="text-[10px] font-bold text-slate-400 block mb-1 uppercase tracking-wider">
-                      PIN de Marcación {focusedField === 'pin' && <span className="text-indigo-400 animate-pulse">(Escribiendo)</span>}
+                      PIN de Marcación {focusedField === 'pin' && <span className="text-indigo-400 animate-pulse font-bold">(Escribiendo)</span>}
                     </label>
                     <div className="relative">
                       <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
@@ -697,7 +876,7 @@ function App() {
                         disabled={loginLoading}
                         className="keypad-btn text-xs text-red-400 font-bold"
                       >
-                        C
+                        Limpiar
                       </button>
                       <button
                         type="button"
@@ -713,7 +892,7 @@ function App() {
                         disabled={loginLoading}
                         className="keypad-btn text-xs text-indigo-400 font-bold"
                       >
-                        ⌫
+                        Borrar
                       </button>
                     </div>
                   </div>
@@ -747,7 +926,7 @@ function App() {
         )}
 
         {/* ==========================================
-            PANTALLA 2: SELECCIÓN DE SEDE (PANTALLA LIMPÍA)
+            PANTALLA 2: SELECCIÓN DE SEDE (PANTALLA LIMPIA)
             ========================================== */}
         {currentScreen === 'SEDE_SELECT' && (
           <div className="max-w-4xl mx-auto w-full flex flex-col gap-6 animate-scale-in">
@@ -757,7 +936,7 @@ function App() {
               </span>
               <h3 className="text-2xl font-black text-white mt-3 uppercase tracking-wide">¿En cuál clínica se encuentra laborando?</h3>
               <p className="text-xs text-slate-400 mt-1">
-                Hola <strong className="text-slate-200">{currentUser?.nombre}</strong>, para registrar asistencia elija su ubicación clinica actual. El GPS validará su rango.
+                Hola <strong className="text-slate-200">{currentUser?.nombre}</strong>, para registrar asistencia elija su ubicación clínica actual. El GPS validará su rango.
               </p>
             </div>
 
@@ -783,7 +962,7 @@ function App() {
                       className="sede-card"
                     >
                       <div className={`h-14 w-14 rounded-2xl bg-gradient-to-tr ${colorClass} flex items-center justify-center text-white mb-2 shadow-lg`}>
-                        {s.nombre.toLowerCase().includes('chiclayo') ? <MapPin className="h-6 w-6" /> : <ArrowRightLeft className="h-6 w-6" />}
+                        {s.nombre.toLowerCase().includes('chiclayo') ? <MapPin className="h-6 w-6" /> : <Compass className="h-6 w-6" />}
                       </div>
                       <h4 className="text-sm font-bold text-white uppercase tracking-wide m-0">{s.nombre}</h4>
                       <p className="text-[10px] text-slate-400 m-0">{desc}</p>
@@ -795,7 +974,7 @@ function App() {
                 })
               ) : (
                 <div className="col-span-3 text-center py-8 text-slate-400 font-medium">
-                  Cargando sedes clinicas del servidor central...
+                  Cargando sedes clínicas del servidor central...
                 </div>
               )}
             </div>
@@ -808,15 +987,15 @@ function App() {
         {currentScreen === 'CAPTURE' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 max-w-5xl mx-auto w-full items-center">
             
-            {/* Columna Izquierda: Camara Frontal de Biometria */}
+            {/* Columna Izquierda: Cámara Frontal de Biometría */}
             <div className="lg:col-span-7 flex flex-col gap-4">
               <div className="glass-panel p-5 relative">
                 <div className="flex justify-between items-center mb-3">
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                     Paso 3 de 3: Identificación Biométrica & GPS
                   </span>
-                  <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/25 font-bold uppercase tracking-wider">
-                    Cámara Frontal Listada
+                  <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-2.5 py-0.5 rounded-full border border-emerald-500/25 font-bold uppercase tracking-wider">
+                    Cámara Biométrica
                   </span>
                 </div>
 
@@ -832,13 +1011,14 @@ function App() {
                       />
                       <div className="scanning-ring"></div>
                       
+                      {/* Retícula militar de biometría */}
                       <div className="reticle-corner reticle-tl"></div>
                       <div className="reticle-corner reticle-tr"></div>
                       <div className="reticle-corner reticle-bl"></div>
                       <div className="reticle-corner reticle-br"></div>
                       
                       <div className="absolute bottom-4 left-4 bg-slate-950/80 backdrop-filter backdrop-blur-md px-3 py-1.5 rounded-lg border border-indigo-500/20 text-[10px] text-indigo-300 font-bold tracking-wider flex items-center gap-1.5 z-20">
-                        <MapPin className="h-3 w-3 text-indigo-400 animate-ping" />
+                        <Activity className="h-3.5 w-3.5 text-indigo-400 animate-pulse" />
                         BIO-INSCRIPCIÓN GPS ACTIVA
                       </div>
                     </>
@@ -864,12 +1044,12 @@ function App() {
               </div>
             </div>
 
-            {/* Columna Derecha: Confirmacion de Marcado */}
+            {/* Columna Derecha: Confirmación de Marcado */}
             <div className="lg:col-span-5">
               <div className="glass-panel p-6 glass-panel-primary flex flex-col gap-4 justify-between min-h-[380px]">
                 <div>
                   <div className="text-center pb-2 border-b border-slate-800">
-                    <h3 className="text-lg font-extrabold text-white tracking-wide uppercase m-0">Confirmación de Registro</h3>
+                    <h3 className="text-base font-extrabold text-white tracking-wide uppercase m-0">Confirmación de Registro</h3>
                     <p className="text-xs text-slate-400 mt-1">Verificación de perfil laboral</p>
                   </div>
 
@@ -898,16 +1078,16 @@ function App() {
                 </div>
 
                 <div className="flex flex-col gap-3">
-                  {/* Boton para Cambiar de Sede si se equivoco */}
+                  {/* Botón para Cambiar de Sede si se equivocó */}
                   <button
                     onClick={() => handleSedeSelect('')}
                     disabled={markingLoading}
-                    className="w-full py-2.5 rounded-lg border border-slate-700 bg-transparent text-slate-300 text-xs font-bold uppercase transition-colors hover:bg-slate-800 cursor-pointer"
+                    className="w-full py-2.5 rounded-lg border border-slate-700 bg-transparent text-slate-300 text-xs font-bold uppercase transition-colors hover:bg-slate-850 cursor-pointer"
                   >
-                    Cambiar de Sede Clinica
+                    Cambiar de Sede Clínica
                   </button>
 
-                  {/* Boton Principal para Marcar */}
+                  {/* Botón Principal para Marcar */}
                   <button
                     onClick={procesarMarcado}
                     disabled={markingLoading}
@@ -944,7 +1124,7 @@ function App() {
             <div className="success-card animate-scale-in">
               
               <div className="success-header-badge">
-                <CheckCircle2 className="h-4 w-4" />
+                <ShieldCheck className="h-4 w-4 text-emerald-400" />
                 Validación Exitosa SUNAFIL
               </div>
 
@@ -995,7 +1175,7 @@ function App() {
                 Limpiando sesión para el siguiente colaborador en <span className="text-emerald-400 font-mono text-sm">{countdown}</span> segundos...
               </div>
 
-              {/* Boton manual para saltar espera */}
+              {/* Botón manual para saltar espera */}
               <button
                 onClick={finalizarYLimpiarSesion}
                 className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-lg shadow-emerald-600/10 cursor-pointer active:scale-[0.98] transition-all"
@@ -1013,7 +1193,7 @@ function App() {
           <div className="max-w-md mx-auto w-full">
             <form onSubmit={handleAdminLogin} className="glass-panel p-8 flex flex-col gap-5 border-indigo-500/30">
               <div className="text-center">
-                <Settings className="h-10 w-10 text-indigo-400 mx-auto mb-3" />
+                <Settings className="h-10 w-10 text-indigo-400 mx-auto mb-3 animate-spin-slow" />
                 <h3 className="text-xl font-extrabold text-white">Dashboard Administrativo</h3>
                 <p className="text-xs text-slate-400 mt-1">Verificación obligatoria de credenciales</p>
               </div>
@@ -1063,7 +1243,7 @@ function App() {
             {/* Columna Izquierda: Alta Usuarios y Panel de Control */}
             <div className="lg:col-span-4 flex flex-col gap-6">
               
-              {/* Tarjeta Metricas */}
+              {/* Tarjeta Métricas */}
               <div className="glass-panel p-5 grid grid-cols-2 gap-4">
                 <div className="col-span-2 border-b border-slate-800 pb-3 flex justify-between items-center">
                   <h4 className="text-xs font-extrabold text-white uppercase tracking-wider m-0">Panel de Control</h4>
@@ -1242,7 +1422,35 @@ function App() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-900">
-                      {historialFiltrado.length > 0 ? (
+                      {historialLoading ? (
+                        Array.from({ length: 5 }).map((_, idx) => (
+                          <tr key={idx} className="animate-pulse">
+                            <td className="p-3">
+                              <div className="skeleton skeleton-text w-32 h-4 mb-2"></div>
+                              <div className="skeleton skeleton-text w-20 h-3"></div>
+                            </td>
+                            <td className="p-3">
+                              <div className="skeleton skeleton-text w-24 h-4"></div>
+                            </td>
+                            <td className="p-3">
+                              <div className="skeleton skeleton-text w-16 h-5 rounded-full"></div>
+                            </td>
+                            <td className="p-3">
+                              <div className="skeleton skeleton-text w-20 h-4 mb-1"></div>
+                              <div className="skeleton skeleton-text w-12 h-3"></div>
+                            </td>
+                            <td className="p-3">
+                              <div className="skeleton skeleton-text w-16 h-4"></div>
+                            </td>
+                            <td className="p-3">
+                              <div className="flex justify-center gap-2">
+                                <div className="skeleton w-12 h-6 rounded"></div>
+                                <div className="skeleton w-12 h-6 rounded"></div>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      ) : historialFiltrado.length > 0 ? (
                         historialFiltrado.map((m) => {
                           const timeStr = new Date(m.fecha_hora).toLocaleTimeString('es-PE', { hour12: false });
                           const dateStr = new Date(m.fecha_hora).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: '2-digit' });
@@ -1347,7 +1555,7 @@ function App() {
       {/* --- FOOTER INFERIOR --- */}
       <footer className="text-center py-4 border-t border-slate-900 mt-8">
         <p className="text-[9px] text-slate-500 m-0 font-bold uppercase tracking-wider">
-          Sistema de Asistencia Clínica Bare Metal &copy; 2026 - Optimizado para VPS Linux 2GB RAM
+          Anesthesia Healthcare &copy; 2026 - Sistema de Control de Asistencia Enterprise
         </p>
       </footer>
 
