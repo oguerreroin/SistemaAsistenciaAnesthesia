@@ -94,6 +94,8 @@ function App() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const cameraStreamRef = useRef(null);
+  const shouldCameraBeActive = useRef(false);
+  const cameraRequestInProgress = useRef(false);
 
   // --- SISTEMA PREMIUM DE TOAST NOTIFICATIONS ---
   const showToast = (message, type = 'info') => {
@@ -240,9 +242,30 @@ function App() {
 
   // --- CONTROLADORES CÁMARA FRONTAL NATIVA (PANTALLA 3) CON SÓLIDO DIAGNÓSTICO ---
   const iniciarCamara = async () => {
+    shouldCameraBeActive.current = true;
+
+    if (cameraRequestInProgress.current) {
+      console.log('Ya hay una solicitud de cámara en progreso. Ignorando.');
+      return;
+    }
+
+    if (cameraStreamRef.current) {
+      console.log('La cámara ya tiene un stream activo.');
+      // Asegurar asignación al elemento de video
+      if (videoRef.current && videoRef.current.srcObject !== cameraStreamRef.current) {
+        videoRef.current.srcObject = cameraStreamRef.current;
+        try {
+          await videoRef.current.play();
+        } catch (e) {
+          console.warn("Error playing video:", e);
+        }
+      }
+      setCameraActive(true);
+      return;
+    }
+
+    cameraRequestInProgress.current = true;
     try {
-      detenerCamara();
-      
       // Validar si cuenta con APIs de MediaDevices
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         if (window.isSecureContext === false) {
@@ -251,7 +274,7 @@ function App() {
         throw new Error('NO_MEDIA_DEVICES');
       }
 
-      showToast('Iniciando biometría...', 'info');
+      showToast('Iniciando cámara...', 'info');
       let stream;
       try {
         // Intento 1: Cámara frontal nativa de alta fidelidad
@@ -265,45 +288,80 @@ function App() {
         });
       } catch (err) {
         console.warn('Fallo cámara frontal estricta, intentando fallback de emergencia:', err);
-        showToast('Cámara frontal no disponible, utilizando cámara por defecto.', 'warning');
+        showToast('Activando cámara disponible...', 'warning');
         // Fallback 1: Cualquier cámara web disponible (laptops o webcams externas)
         stream = await navigator.mediaDevices.getUserMedia({
           video: true,
           audio: false
         });
       }
-      
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
+
+      // SI EL USUARIO SALIÓ DE LA PANTALLA MIENTRAS SE ESPERABA EL PERMISO, APAGAR DE INMEDIATO
+      if (!shouldCameraBeActive.current) {
+        console.log('La cámara se inició pero el usuario ya no está en la pantalla de captura. Deteniendo.');
+        stream.getTracks().forEach(track => track.stop());
+        cameraRequestInProgress.current = false;
+        return;
       }
+      
       cameraStreamRef.current = stream;
       setCameraActive(true);
       setErrorMessage('');
-      showToast('Cámara activa y lista.', 'success');
+      showToast('Cámara lista.', 'success');
+      
+      // Asignación dual e inicio de reproducción explícito para evitar desfases en iOS/Android
+      const bindStream = async (el) => {
+        if (!el) return;
+        el.srcObject = stream;
+        try {
+          await el.play();
+        } catch (playErr) {
+          console.warn("Error calling play() on video element, retrying:", playErr);
+        }
+      };
+
+      if (videoRef.current) {
+        await bindStream(videoRef.current);
+      }
+      setTimeout(() => {
+        if (videoRef.current && shouldCameraBeActive.current) {
+          bindStream(videoRef.current);
+        }
+      }, 50);
+      setTimeout(() => {
+        if (videoRef.current && shouldCameraBeActive.current) {
+          bindStream(videoRef.current);
+        }
+      }, 150);
     } catch (err) {
       console.error('Error de acceso a camara:', err);
       setCameraActive(false);
       
-      let errorText = 'No se puede activar la cámara frontal. Permita el acceso en el navegador.';
+      let errorText = 'No se pudo activar la cámara. Por favor, active los permisos en el navegador.';
       
       if (err.message === 'SECURE_CONTEXT_ERROR') {
-        errorText = 'Entorno Inseguro. El navegador bloquea la cámara por políticas HTTP. Acceda utilizando HTTPS (ej. https://asistenciahc.tayka.net).';
+        errorText = 'La cámara requiere una conexión segura (HTTPS) para funcionar.';
       } else if (err.message === 'NO_MEDIA_DEVICES') {
-        errorText = 'No se detectó ningún hardware de cámara o captura en este dispositivo.';
+        errorText = 'No se detectó ninguna cámara conectada a este dispositivo.';
       } else if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        errorText = 'Permiso denegado. Haga clic en el candado de la barra de direcciones y active los permisos de "Cámara".';
+        errorText = 'Acceso a la cámara denegado. Por favor, permita el uso de la cámara desde la configuración del navegador.';
       } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-        errorText = 'No se encontró hardware de cámara compatible conectado a este dispositivo.';
+        errorText = 'No se encontró una cámara compatible.';
       } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-        errorText = 'La cámara está siendo bloqueada o utilizada por otra aplicación (Zoom, Teams, etc.). Ciérrela e intente de nuevo.';
+        errorText = 'La cámara está ocupada por otra aplicación o bloqueada. Cierre otras apps e intente de nuevo.';
       }
       
-      setErrorMessage(errorText);
-      showToast('Error al iniciar cámara.', 'error');
+      if (shouldCameraBeActive.current) {
+        setErrorMessage(errorText);
+        showToast('Error al iniciar cámara.', 'error');
+      }
+    } finally {
+      cameraRequestInProgress.current = false;
     }
   };
 
   const detenerCamara = () => {
+    shouldCameraBeActive.current = false;
     if (cameraStreamRef.current) {
       cameraStreamRef.current.getTracks().forEach(track => track.stop());
       cameraStreamRef.current = null;
@@ -344,12 +402,12 @@ function App() {
         return;
       }
 
-      showToast('Obteniendo coordenadas satelitales...', 'info');
+      showToast('Verificando ubicación...', 'info');
 
       // Intento 1: Alta precisión satelital con timeout corto
       navigator.geolocation.getCurrentPosition(
         (position) => {
-          showToast('Ubicación obtenida con alta precisión.', 'success');
+          showToast('Ubicación confirmada.', 'success');
           resolve(position);
         },
         (err) => {
@@ -360,12 +418,11 @@ function App() {
           }
 
           console.warn('Fallo GPS satelital o lento, intentando triangulación híbrida...', err);
-          showToast('GPS débil. Conmutando a red WiFi/móvil para evitar timeout...', 'warning');
 
           // Fallback 1: Baja precisión con tiempo amplio (muy rápido en interiores)
           navigator.geolocation.getCurrentPosition(
             (position) => {
-              showToast('Ubicación obtenida por redes híbridas.', 'success');
+              showToast('Ubicación confirmada.', 'success');
               resolve(position);
             },
             (err2) => {
@@ -396,12 +453,12 @@ function App() {
       return;
     }
     if (!activeSedeId) {
-      setErrorMessage('Seleccione una sede clínica.');
-      showToast('Falta sede.', 'warning');
+      setErrorMessage('Seleccione una clínica.');
+      showToast('Falta seleccionar clínica.', 'warning');
       return;
     }
     if (!cameraActive) {
-      setErrorMessage('Se requiere acceso de cámara activa para registrar asistencia.');
+      setErrorMessage('Se requiere acceso de cámara para registrar asistencia.');
       showToast('Cámara inactiva.', 'warning');
       return;
     }
@@ -414,7 +471,7 @@ function App() {
 
       const fotoBlob = await obtenerFotoBlob();
       if (!fotoBlob) {
-        throw new Error('Fallo la captura de la webcam frontal.');
+        throw new Error('Fallo la captura de la cámara frontal.');
       }
 
       // Crear FormData
@@ -425,7 +482,7 @@ function App() {
       formData.append('longitud', longitude.toString());
       formData.append('foto', fotoBlob, `captura_${currentUser.dni}.jpg`);
 
-      showToast('Enviando datos al servidor central...', 'info');
+      showToast('Registrando su asistencia...', 'info');
 
       const response = await fetch(`${API_BASE}/asistencia/marcar`, {
         method: 'POST',
@@ -445,21 +502,21 @@ function App() {
           distancia: result.data.distancia_metros,
           fueraDeRango: result.data.fuera_de_rango
         });
-        showToast('¡Asistencia registrada con éxito!', 'success');
+        showToast('Asistencia registrada con éxito.', 'success');
       } else {
-        setErrorMessage(result.error || 'Error al procesar su marcado.');
+        setErrorMessage(result.error || 'Error al registrar su asistencia.');
         showToast(result.error || 'Error en el registro.', 'error');
       }
     } catch (err) {
       console.error(err);
       
-      let errorDesc = 'Error de red. No se pudo registrar la marcación.';
+      let errorDesc = 'Error de conexión. No se pudo registrar la asistencia.';
       if (err.code === 1) {
-        errorDesc = 'Acceso a ubicación denegado. Permita los permisos de "Ubicación" desde el candado del navegador.';
-        showToast('Permiso de GPS bloqueado.', 'error');
+        errorDesc = 'Acceso a ubicación denegado. Permita los permisos de ubicación en el navegador para marcar.';
+        showToast('Ubicación bloqueada.', 'error');
       } else if (err.code === 3 || err.message?.includes('timeout')) {
-        errorDesc = 'Se agotó el tiempo de espera del GPS. Salga a un espacio abierto o active WiFi e intente de nuevo.';
-        showToast('Timeout de Geolocalización.', 'error');
+        errorDesc = 'No se pudo obtener su ubicación. Conéctese a una red WiFi estable e intente nuevamente.';
+        showToast('Ubicación no disponible.', 'error');
       } else {
         showToast('Error en la marcación.', 'error');
       }
@@ -680,11 +737,11 @@ function App() {
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-tight text-white m-0 flex items-center gap-2">
-              Anesthesia Healthcare <span className="text-indigo-400 text-sm font-semibold">v2.0 MVP</span>
+              Anesthesia Healthcare
             </h1>
             <div className="flex items-center gap-2 mt-0.5">
               <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              <p className="text-[10px] text-emerald-400 m-0 font-bold uppercase tracking-wider">Servicio en Línea (VPS-TLS)</p>
+              <p className="text-[10px] text-emerald-400 m-0 font-bold uppercase tracking-wider">Servicio Activo</p>
             </div>
           </div>
         </div>
@@ -759,13 +816,13 @@ function App() {
             {/* Columna Izquierda: Mensaje de Bienvenida */}
             <div className="lg:col-span-7 flex flex-col gap-5 text-center lg:text-left pr-4">
               <span className="inline-flex self-center lg:self-start items-center gap-1.5 px-3 py-1 text-[10px] font-bold text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 rounded-full tracking-wider uppercase">
-                <ShieldCheck className="h-3.5 w-3.5 text-indigo-400" /> Plataforma de Asistencia Médica
+                <ShieldCheck className="h-3.5 w-3.5 text-indigo-400" /> Registro de Asistencia
               </span>
               <h2 className="text-4xl font-extrabold text-white leading-tight">
-                Control Biométrico y Georreferenciado <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-300">Anesthesia Healthcare</span>
+                Control de Asistencia <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-300">Anesthesia Healthcare</span>
               </h2>
               <p className="text-sm text-slate-400 max-w-lg leading-relaxed">
-                Kiosko inteligente homologado para el registro inalterable de asistencia de médicos y personal. Valida su identidad vía reconocimiento facial y certifica sus coordenadas por GPS.
+                Registre su entrada y salida de manera rápida y segura en su sede autorizada.
               </p>
               
               <div className="flex flex-wrap gap-4 justify-center lg:justify-start mt-2">
@@ -774,8 +831,8 @@ function App() {
                     <MapPin className="text-indigo-400 h-5 w-5" />
                   </div>
                   <div className="text-left">
-                    <span className="text-[9px] font-bold text-slate-500 block uppercase">Geofencing GPS</span>
-                    <span className="text-xs font-bold text-slate-200">Precisión Híbrida</span>
+                    <span className="text-[9px] font-bold text-slate-500 block uppercase">Ubicación</span>
+                    <span className="text-xs font-bold text-slate-200">Sede Confirmada</span>
                   </div>
                 </div>
                 <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800 flex items-center gap-3">
@@ -783,8 +840,8 @@ function App() {
                     <Camera className="text-emerald-400 h-5 w-5" />
                   </div>
                   <div className="text-left">
-                    <span className="text-[9px] font-bold text-slate-500 block uppercase">Reconocimiento</span>
-                    <span className="text-xs font-bold text-slate-200">Cámara Frontal Nativa</span>
+                    <span className="text-[9px] font-bold text-slate-500 block uppercase">Seguridad</span>
+                    <span className="text-xs font-bold text-slate-200">Verificación Facial</span>
                   </div>
                 </div>
                 <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-800 flex items-center gap-3">
@@ -792,8 +849,8 @@ function App() {
                     <ShieldCheck className="text-cyan-400 h-5 w-5" />
                   </div>
                   <div className="text-left">
-                    <span className="text-[9px] font-bold text-slate-500 block uppercase">SUNAFIL Auditable</span>
-                    <span className="text-xs font-bold text-slate-200">Encriptación SHA-256</span>
+                    <span className="text-[9px] font-bold text-slate-500 block uppercase">Estado</span>
+                    <span className="text-xs font-bold text-slate-200">Registro Oficial</span>
                   </div>
                 </div>
               </div>
@@ -932,11 +989,11 @@ function App() {
           <div className="max-w-4xl mx-auto w-full flex flex-col gap-6 animate-scale-in">
             <div className="text-center max-w-xl mx-auto">
               <span className="text-[10px] bg-indigo-500/10 text-indigo-400 px-3 py-1 rounded-full border border-indigo-500/25 font-bold uppercase tracking-wider">
-                Paso 2 de 3: Identificación de Sede
+                Paso 2: Seleccionar Clínica
               </span>
-              <h3 className="text-2xl font-black text-white mt-3 uppercase tracking-wide">¿En cuál clínica se encuentra laborando?</h3>
+              <h3 className="text-2xl font-black text-white mt-3 uppercase tracking-wide">¿Dónde se encuentra hoy?</h3>
               <p className="text-xs text-slate-400 mt-1">
-                Hola <strong className="text-slate-200">{currentUser?.nombre}</strong>, para registrar asistencia elija su ubicación clínica actual. El GPS validará su rango.
+                Hola <strong className="text-slate-200">{currentUser?.nombre}</strong>, seleccione la clínica donde labora hoy para registrar su asistencia.
               </p>
             </div>
 
@@ -967,14 +1024,14 @@ function App() {
                       <h4 className="text-sm font-bold text-white uppercase tracking-wide m-0">{s.nombre}</h4>
                       <p className="text-[10px] text-slate-400 m-0">{desc}</p>
                       <div className="mt-2 text-[10px] bg-slate-900 px-3.5 py-1 rounded-full border border-slate-800 text-indigo-300 font-bold">
-                        Rango Permitido: {s.radio_permitido_metros}m
+                        Zona Autorizada
                       </div>
                     </div>
                   );
                 })
               ) : (
                 <div className="col-span-3 text-center py-8 text-slate-400 font-medium">
-                  Cargando sedes clínicas del servidor central...
+                  Cargando clínicas...
                 </div>
               )}
             </div>
@@ -992,23 +1049,23 @@ function App() {
               <div className="glass-panel p-5 relative">
                 <div className="flex justify-between items-center mb-3">
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                    Paso 3 de 3: Identificación Biométrica & GPS
+                    Paso 3: Foto de Registro
                   </span>
                   <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-2.5 py-0.5 rounded-full border border-emerald-500/25 font-bold uppercase tracking-wider">
-                    Cámara Biométrica
+                    Cámara
                   </span>
                 </div>
 
                 <div className="camera-container relative overflow-hidden bg-slate-950 flex items-center justify-center">
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className={`w-full h-full object-cover scale-x-[-1] ${!cameraActive ? 'hidden' : ''}`}
+                  />
                   {cameraActive ? (
                     <>
-                      <video
-                        ref={videoRef}
-                        autoPlay
-                        playsInline
-                        muted
-                        className="w-full h-full object-cover scale-x-[-1]"
-                      />
                       <div className="scanning-ring"></div>
                       
                       {/* Retícula militar de biometría */}
@@ -1019,7 +1076,7 @@ function App() {
                       
                       <div className="absolute bottom-4 left-4 bg-slate-950/80 backdrop-filter backdrop-blur-md px-3 py-1.5 rounded-lg border border-indigo-500/20 text-[10px] text-indigo-300 font-bold tracking-wider flex items-center gap-1.5 z-20">
                         <Activity className="h-3.5 w-3.5 text-indigo-400 animate-pulse" />
-                        BIO-INSCRIPCIÓN GPS ACTIVA
+                        CÁMARA LISTA
                       </div>
                     </>
                   ) : (
@@ -1035,7 +1092,7 @@ function App() {
                         onClick={iniciarCamara}
                         className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-indigo-600/20 cursor-pointer"
                       >
-                        Reintentar Cámara
+                        Iniciar Cámara
                       </button>
                     </div>
                   )}
@@ -1049,22 +1106,22 @@ function App() {
               <div className="glass-panel p-6 glass-panel-primary flex flex-col gap-4 justify-between min-h-[380px]">
                 <div>
                   <div className="text-center pb-2 border-b border-slate-800">
-                    <h3 className="text-base font-extrabold text-white tracking-wide uppercase m-0">Confirmación de Registro</h3>
-                    <p className="text-xs text-slate-400 mt-1">Verificación de perfil laboral</p>
+                    <h3 className="text-base font-extrabold text-white tracking-wide uppercase m-0">Confirmar Marcación</h3>
+                    <p className="text-xs text-slate-400 mt-1">Revise sus datos antes de marcar</p>
                   </div>
 
                   {/* Caja de Datos */}
                   <div className="bg-slate-950/60 rounded-xl border border-slate-850 p-4 mt-4 flex flex-col gap-3">
                     <div className="flex justify-between items-center pb-2 border-b border-slate-900">
-                      <span className="text-[10px] font-bold text-slate-500 uppercase">Colaborador</span>
+                      <span className="text-[10px] font-bold text-slate-500 uppercase">Nombre</span>
                       <span className="text-xs font-extrabold text-slate-200">{currentUser?.nombre}</span>
                     </div>
                     <div className="flex justify-between items-center pb-2 border-b border-slate-900">
-                      <span className="text-[10px] font-bold text-slate-500 uppercase">DNI de Registro</span>
+                      <span className="text-[10px] font-bold text-slate-500 uppercase">DNI</span>
                       <span className="text-xs font-mono text-slate-200">{currentUser?.dni}</span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-bold text-slate-500 uppercase">Sede Seleccionada</span>
+                      <span className="text-[10px] font-bold text-slate-500 uppercase">Sede</span>
                       <span className="text-xs font-extrabold text-indigo-400 uppercase">
                         🏢 {sedes.find(s => s.id.toString() === activeSedeId)?.nombre || 'Sede'}
                       </span>
@@ -1072,8 +1129,8 @@ function App() {
                   </div>
 
                   <div className="mt-4 flex items-center gap-2 bg-indigo-950/10 border border-indigo-500/10 p-3 rounded-lg text-[10px] text-indigo-300/90 font-medium leading-relaxed">
-                    <AlertTriangle className="h-4.5 w-4.5 text-indigo-400 shrink-0" />
-                    El sistema registrará sus coordenadas geográficas y tomará una foto frontal obligatoria según normativas de SUNAFIL.
+                    <ShieldCheck className="h-4.5 w-4.5 text-indigo-400 shrink-0" />
+                    Por su seguridad, se registrará su ubicación y una foto de verificación para validar la asistencia.
                   </div>
                 </div>
 
@@ -1084,7 +1141,7 @@ function App() {
                     disabled={markingLoading}
                     className="w-full py-2.5 rounded-lg border border-slate-700 bg-transparent text-slate-300 text-xs font-bold uppercase transition-colors hover:bg-slate-850 cursor-pointer"
                   >
-                    Cambiar de Sede Clínica
+                    Cambiar Sede
                   </button>
 
                   {/* Botón Principal para Marcar */}
@@ -1100,12 +1157,12 @@ function App() {
                     {markingLoading ? (
                       <>
                         <RefreshCw className="h-4.5 w-4.5 animate-spin" />
-                        Obteniendo GPS & Marcando...
+                        Procesando...
                       </>
                     ) : (
                       <>
                         <CheckCircle2 className="h-5 w-5" />
-                        Registrar Asistencia
+                        Confirmar Registro
                       </>
                     )}
                   </button>
@@ -1125,7 +1182,7 @@ function App() {
               
               <div className="success-header-badge">
                 <ShieldCheck className="h-4 w-4 text-emerald-400" />
-                Validación Exitosa SUNAFIL
+                Registro Confirmado
               </div>
 
               <div className="h-20 w-20 rounded-full bg-emerald-500/10 border-2 border-emerald-500 flex items-center justify-center mx-auto mb-6 shadow-lg shadow-emerald-500/30">
@@ -1133,46 +1190,46 @@ function App() {
               </div>
 
               <h2 className="text-3xl font-black text-emerald-300 uppercase tracking-wide mb-1 glow-text-success">
-                ¡Registro de {successMessage.tipo} Exitoso!
+                ¡{successMessage.tipo} Registrada!
               </h2>
-              <p className="text-slate-300 text-xs font-semibold mb-6">Su asistencia ha sido inscrita y firmada digitalmente en el servidor.</p>
+              <p className="text-slate-300 text-xs font-semibold mb-6">Su hora de ingreso/salida se guardó con éxito.</p>
 
               {/* Ficha de Asistencia */}
               <div className="bg-slate-950/65 rounded-2xl border border-emerald-500/20 p-5 mb-8 text-left grid grid-cols-2 gap-4">
                 <div className="col-span-2 border-b border-emerald-950/40 pb-2 flex justify-between items-center">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Empleado</span>
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Colaborador</span>
                   <span className="text-xs font-black text-white uppercase">{successMessage.usuario}</span>
                 </div>
                 <div className="col-span-2 border-b border-emerald-950/40 pb-2 flex justify-between items-center">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Cargo / Rol</span>
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Cargo</span>
                   <span className="text-xs font-bold text-slate-300">{successMessage.rol}</span>
                 </div>
                 <div className="border-r border-emerald-950/40 pr-2">
-                  <span className="text-[10px] font-bold text-slate-500 block uppercase tracking-wider mb-1">Clínica Sede</span>
+                  <span className="text-[10px] font-bold text-slate-500 block uppercase tracking-wider mb-1">Sede</span>
                   <span className="text-xs font-extrabold text-white">🏢 {successMessage.sede}</span>
                 </div>
                 <div className="pl-2">
-                  <span className="text-[10px] font-bold text-slate-500 block uppercase tracking-wider mb-1">Hora Marcación</span>
+                  <span className="text-[10px] font-bold text-slate-500 block uppercase tracking-wider mb-1">Hora</span>
                   <span className="text-xs font-extrabold text-indigo-300">⏰ {successMessage.hora}</span>
                 </div>
                 <div className="col-span-2 border-t border-emerald-950/40 pt-3 flex items-center justify-between">
                   <div>
-                    <span className="text-[10px] font-bold text-slate-500 block uppercase tracking-wider">Rango Geográfico</span>
+                    <span className="text-[10px] font-bold text-slate-500 block uppercase tracking-wider">Estado de Ubicación</span>
                     <span className={`text-[11px] font-bold ${successMessage.fueraDeRango ? 'text-amber-400' : 'text-emerald-400'}`}>
-                      {successMessage.distancia} metros {successMessage.fueraDeRango ? '(Fuera de Sede)' : '(Dentro de Rango)'}
+                      {successMessage.fueraDeRango ? 'Fuera de Sede' : 'En Sede (Área Autorizada)'}
                     </span>
                   </div>
                   {successMessage.fueraDeRango && (
                     <div className="bg-amber-500/10 text-amber-400 rounded-lg p-1 border border-amber-500/20 text-[9px] font-bold uppercase tracking-wider">
-                      Alerta GPS
+                      Ubicación Inexacta
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Reloj de cuenta regresiva */}
+               {/* Reloj de cuenta regresiva */}
               <div className="text-xs text-slate-400 font-bold mb-4">
-                Limpiando sesión para el siguiente colaborador en <span className="text-emerald-400 font-mono text-sm">{countdown}</span> segundos...
+                El sistema volverá al inicio en <span className="text-emerald-400 font-mono text-sm">{countdown}</span> segundos...
               </div>
 
               {/* Botón manual para saltar espera */}
@@ -1180,7 +1237,7 @@ function App() {
                 onClick={finalizarYLimpiarSesion}
                 className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-lg shadow-emerald-600/10 cursor-pointer active:scale-[0.98] transition-all"
               >
-                Cerrar Sesión Ahora
+                Listo
               </button>
             </div>
           </div>
