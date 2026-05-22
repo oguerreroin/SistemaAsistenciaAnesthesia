@@ -48,12 +48,12 @@ jobs:
             echo "Instalando dependencias de producción del Backend..."
             npm install --omit=dev || { echo "Error en npm install backend"; exit 1; }
             
-            # Reiniciar o Iniciar la app con PM2
+            # Reiniciar o Iniciar la app con PM2 (usando npx como salvaguarda de PATH)
             echo "Reiniciando backend con PM2..."
-            pm2 restart ecosystem.config.js || pm2 start ecosystem.config.js || { echo "Error al iniciar con PM2"; exit 1; }
+            npx pm2 restart ecosystem.config.js || npx pm2 start ecosystem.config.js || { echo "Error al iniciar con PM2"; exit 1; }
             
             # Guardar el estado de PM2
-            pm2 save
+            npx pm2 save
             
             echo "=========================================================="
             echo "🎉 ¡Despliegue de GitOps completado con éxito en el VPS!"
