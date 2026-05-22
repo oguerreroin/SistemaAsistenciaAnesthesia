@@ -1,0 +1,248 @@
+/* Premium Styles for Sistema Asistencia MVP */
+
+/* Animaciones de Entrada */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleIn {
+  from { transform: scale(0.96); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+@keyframes sweep {
+  0% { transform: translateY(-100%); }
+  50% { transform: translateY(100%); }
+  100% { transform: translateY(-100%); }
+}
+
+@keyframes heartbeat {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 30px rgba(16, 185, 129, 0.3); }
+  50% { transform: scale(1.02); box-shadow: 0 0 50px rgba(16, 185, 129, 0.55); }
+}
+
+@keyframes pulseGps {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* Sede Selector Premium Cards */
+.sede-grid {
+  display: grid;
+  grid-template-columns: repeat(1, 1fr);
+  gap: 16px;
+  width: 100%;
+}
+
+@media (min-width: 640px) {
+  .sede-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.sede-card {
+  position: relative;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1.5px solid rgba(255, 255, 255, 0.06);
+  border-radius: 20px;
+  padding: 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.sede-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at top, rgba(99, 102, 241, 0.12), transparent 70%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.sede-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(99, 102, 241, 0.4);
+  background: rgba(15, 23, 42, 0.8);
+  box-shadow: 0 12px 30px rgba(99, 102, 241, 0.15);
+}
+
+.sede-card:hover::before {
+  opacity: 1;
+}
+
+.sede-card.active {
+  border-color: #6366f1;
+  background: rgba(99, 102, 241, 0.08);
+  box-shadow: 0 0 25px rgba(99, 102, 241, 0.25);
+}
+
+.sede-icon-container {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+}
+
+.sede-card:hover .sede-icon-container {
+  transform: scale(1.1);
+  background: rgba(99, 102, 241, 0.2);
+  border-color: rgba(99, 102, 241, 0.45);
+}
+
+/* Pantalla de Exito Gigante Verde (Sunafil audit style) */
+.success-screen-overlay {
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(circle at center, #022c22 0%, #020617 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 100;
+  backdrop-filter: blur(16px);
+}
+
+.success-card {
+  max-width: 540px;
+  width: 100%;
+  background: rgba(6, 78, 59, 0.25);
+  backdrop-filter: blur(20px);
+  border: 2px solid rgba(16, 185, 129, 0.4);
+  box-shadow: 0 0 40px rgba(16, 185, 129, 0.2);
+  border-radius: 28px;
+  padding: 40px;
+  text-align: center;
+  animation: heartbeat 2.5s infinite;
+}
+
+.success-header-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: #34d399;
+  padding: 6px 14px;
+  border-radius: 99px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin-bottom: 24px;
+}
+
+/* Kiosk inputs con cursor intermitente cuando esta activo */
+.kiosk-input-container {
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.kiosk-input-container.focused {
+  transform: scale(1.02);
+}
+
+.kiosk-input-container.focused input {
+  border-color: #6366f1;
+  box-shadow: 0 0 15px rgba(99, 102, 241, 0.25);
+  background: rgba(15, 23, 42, 0.95);
+}
+
+.gps-badge-pulse {
+  animation: pulseGps 1.5s ease-in-out infinite;
+}
+
+/* Estilo del Kiosk layout general */
+.kiosk-box {
+  background: rgba(15, 23, 42, 0.45);
+  border: 1.5px solid rgba(255, 255, 255, 0.05);
+  border-radius: 24px;
+  padding: 32px;
+}
+
+/* Botonera de administracion moderna */
+.btn-export {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.btn-excel {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.3);
+  color: #34d399;
+}
+
+.btn-excel:hover {
+  background: #10b981;
+  border-color: #10b981;
+  color: white;
+  box-shadow: 0 6px 15px rgba(16, 185, 129, 0.25);
+}
+
+.btn-pdf {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+}
+
+.btn-pdf:hover {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: white;
+  box-shadow: 0 6px 15px rgba(239, 68, 68, 0.25);
+}
+
+/* Biometric scanning effect */
+.reticle-container {
+  position: absolute;
+  inset: 20px;
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  border-radius: 50%;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.reticle-corner {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border: 2px solid #6366f1;
+  pointer-events: none;
+}
+
+.reticle-tl { top: 12px; left: 12px; border-right: none; border-bottom: none; border-top-left-radius: 8px; }
+.reticle-tr { top: 12px; right: 12px; border-left: none; border-bottom: none; border-top-right-radius: 8px; }
+.reticle-bl { bottom: 12px; left: 12px; border-right: none; border-top: none; border-bottom-left-radius: 8px; }
+.reticle-br { bottom: 12px; right: 12px; border-left: none; border-top: none; border-bottom-right-radius: 8px; }

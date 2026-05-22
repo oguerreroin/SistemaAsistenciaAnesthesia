@@ -1,0 +1,42 @@
+# Dependencias de Node.js
+**/node_modules/
+**/package-lock.json
+
+# Compilación y producción
+**/dist/
+**/build/
+.production/
+
+# Variables de entorno y secretos
+**/.env
+**/.env.local
+**/.env.production
+**/.env.development
+
+# Almacenamiento local del MVP (evitar subir fotos de prueba de la webcam al repositorio)
+backend/storage/fotos/**/*
+!backend/storage/fotos/.gitkeep
+backend/storage/fotos/*
+
+# Archivos del sistema y editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Archivos temporales de Office (Excel temporales, etc.)
+~$*.xlsx
+*.tmp
+
+# Logs de error y depuración
+**/logs/
+**/*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
