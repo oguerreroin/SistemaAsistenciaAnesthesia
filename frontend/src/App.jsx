@@ -216,14 +216,25 @@ function App() {
   const iniciarCamara = async () => {
     try {
       detenerCamara();
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { 
-          facingMode: 'user', 
-          width: { ideal: 640 }, 
-          height: { ideal: 480 } 
-        },
-        audio: false
-      });
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { 
+            facingMode: 'user', 
+            width: { ideal: 640 }, 
+            height: { ideal: 480 } 
+          },
+          audio: false
+        });
+      } catch (err) {
+        console.warn('Fallo al iniciar camara con facingMode: user. Intentando fallback basico:', err);
+        // Fallback robusto que solicita cualquier camara de video disponible sin restricciones
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false
+        });
+      }
+      
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
