@@ -505,12 +505,12 @@ function App() {
       {/* --- HEADER SUPERIOR --- */}
       <header className="flex flex-col sm:flex-row justify-between items-center py-4 mb-4 border-b border-slate-800 gap-4">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-indigo-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-            <ArrowRightLeft className="text-white h-5 w-5" />
+          <div className="h-12 w-12 rounded-xl bg-white p-1 flex items-center justify-center shadow-lg shadow-cyan-500/20 overflow-hidden">
+            <img src="/logo.png" alt="Anesthesia Healthcare Logo" className="h-full w-full object-contain" />
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-white m-0">
-              Clínica Asistencia <span className="text-indigo-400 text-sm font-semibold">v2.0 MVP</span>
+            <h1 className="text-xl font-bold tracking-tight text-white m-0 flex items-center gap-2">
+              Anesthesia Healthcare <span className="text-indigo-400 text-sm font-semibold">v2.0 MVP</span>
             </h1>
             <p className="text-xs text-slate-400 m-0">Control Biométrico de Asistencia Médica</p>
           </div>
@@ -612,7 +612,10 @@ function App() {
             {/* Columna Derecha: Formulario + Keypad */}
             <div className="lg:col-span-5">
               <div className="glass-panel p-6 glass-panel-primary flex flex-col gap-4">
-                <div className="text-center">
+                <div className="text-center flex flex-col items-center">
+                  <div className="h-16 w-16 rounded-2xl bg-white p-1.5 mb-3 flex items-center justify-center shadow-lg shadow-cyan-500/10 overflow-hidden">
+                    <img src="/logo.png" alt="Anesthesia Healthcare Logo" className="h-full w-full object-contain" />
+                  </div>
                   <h3 className="text-lg font-extrabold text-white tracking-wide uppercase m-0">Acceso de Personal</h3>
                   <p className="text-xs text-slate-400 mt-1">Identifíquese para registrar asistencia</p>
                 </div>
