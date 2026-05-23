@@ -584,3 +584,244 @@ form.login-form {
       0 0 80px -16px rgba(99, 102, 241, 0.2);
   }
 }
+
+/* ==========================================================================
+   ANALYTICS DASHBOARD — Charts & Reports Module
+   ========================================================================== */
+
+/* --- Dashboard Grid (2x2 on desktop, 1-col on mobile) --- */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+}
+
+@media (min-width: 768px) {
+  .dashboard-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* --- Chart Cards --- */
+.chart-card {
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(99, 102, 241, 0.12);
+  border-radius: 16px;
+  padding: 20px;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.chart-card:hover {
+  border-color: rgba(99, 102, 241, 0.25);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+}
+
+.chart-card-title {
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #e2e8f0;
+  margin: 0 0 4px 0;
+}
+
+.chart-card-subtitle {
+  font-size: 0.625rem;
+  color: #64748b;
+  margin: 0 0 16px 0;
+}
+
+.chart-card-full {
+  grid-column: 1 / -1;
+}
+
+/* --- Editable Cells in Report Matrix --- */
+.editable-cell {
+  width: 52px;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(51, 65, 85, 0.6);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #e2e8f0;
+  text-align: center;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  outline: none;
+  -moz-appearance: textfield;
+}
+
+.editable-cell::-webkit-outer-spin-button,
+.editable-cell::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.editable-cell:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+.editable-cell:hover {
+  border-color: rgba(99, 102, 241, 0.4);
+}
+
+/* --- Totals Footer Row --- */
+.totals-row {
+  background: rgba(99, 102, 241, 0.08) !important;
+  border-top: 2px solid rgba(99, 102, 241, 0.3) !important;
+}
+
+.totals-row td {
+  font-weight: 800 !important;
+  color: #c7d2fe !important;
+  font-size: 0.7rem !important;
+}
+
+/* --- Tab Scroller (mobile) --- */
+.admin-tabs-scroll {
+  display: flex;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  gap: 2px;
+}
+
+.admin-tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.admin-tab-btn {
+  padding: 6px 14px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  border-radius: 6px;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.admin-tab-btn:hover {
+  color: #e2e8f0;
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.admin-tab-btn.active {
+  background: #6366f1;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+}
+
+/* --- Alert Status Badges --- */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  border-radius: 9999px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.status-optimo {
+  background: rgba(16, 185, 129, 0.12);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.status-estable {
+  background: rgba(59, 130, 246, 0.12);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.status-alta-carga {
+  background: rgba(245, 158, 11, 0.12);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.status-critico {
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+/* --- Recharts Custom Tooltip --- */
+.custom-tooltip {
+  background: rgba(15, 23, 42, 0.95) !important;
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(99, 102, 241, 0.2) !important;
+  border-radius: 10px !important;
+  padding: 10px 14px !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4) !important;
+}
+
+.custom-tooltip .label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #e2e8f0;
+  margin-bottom: 4px;
+}
+
+.custom-tooltip .value {
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: #818cf8;
+}
+
+/* --- Metrics Mini Cards (Dashboard Summary) --- */
+.metric-mini-card {
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(51, 65, 85, 0.5);
+  border-radius: 12px;
+  padding: 14px;
+  text-align: center;
+  transition: border-color 0.2s ease;
+}
+
+.metric-mini-card:hover {
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+.metric-mini-value {
+  font-size: 1.5rem;
+  font-weight: 900;
+  background: linear-gradient(135deg, #818cf8, #6ee7b7);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1.2;
+}
+
+.metric-mini-label {
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 4px;
+}
+
+/* --- Responsive fixes for analytics --- */
+@media (max-width: 768px) {
+  .chart-card {
+    padding: 14px;
+  }
+  
+  .dashboard-grid {
+    gap: 12px;
+  }
+
+  .editable-cell {
+    width: 44px;
+    font-size: 0.6rem;
+    padding: 3px 4px;
+  }
+}

@@ -44,6 +44,24 @@ CREATE INDEX IF NOT EXISTS idx_usuarios_dni ON usuarios(dni);
 CREATE INDEX IF NOT EXISTS idx_marcaciones_usuario_fecha ON marcaciones(usuario_id, fecha_hora DESC);
 CREATE INDEX IF NOT EXISTS idx_marcaciones_fecha ON marcaciones(fecha_hora DESC);
 
+-- Tabla de Ajustes de Reporte (valores adicionales mensuales por usuario)
+CREATE TABLE IF NOT EXISTS ajustes_reporte (
+  id SERIAL PRIMARY KEY,
+  usuario_id INTEGER REFERENCES usuarios(id) ON DELETE CASCADE NOT NULL,
+  mes INTEGER NOT NULL CHECK (mes >= 1 AND mes <= 12),
+  anio INTEGER NOT NULL,
+  asisten_ad NUMERIC(10,2) DEFAULT 0,
+  reten NUMERIC(10,2) DEFAULT 0,
+  exclusi NUMERIC(10,2) DEFAULT 0,
+  proc_val NUMERIC(10,2) DEFAULT 0,
+  rne NUMERIC(10,2) DEFAULT 0,
+  encargatu NUMERIC(10,2) DEFAULT 0,
+  actividades NUMERIC(10,2) DEFAULT 0,
+  vacaciones NUMERIC(10,2) DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(usuario_id, mes, anio)
+);
+
 -- ==========================================
 -- SEED DATA (Datos semilla de prueba)
 -- ==========================================
