@@ -1,4 +1,4 @@
-name: Deploy to VPS (GitOps CI/CD)
+name: Deploy to VPS (Optimized CD)
 
 on:
   push:
@@ -6,56 +6,138 @@ on:
       - main
 
 jobs:
-  deploy:
-    name: Deploy to Production
+  # Job de Build & Test - Verificar que todo compila correctamente antes de desplegar
+  build-and-test:
+    name: Build & Test Artifacts
     runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            ./frontend/package-lock.json
+            ./backend/package-lock.json
+
+      # Frontend: Build y validar
+      - name: Build Frontend Artifacts
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+          echo "✅ Frontend compilado exitosamente"
+
+      # Frontend: Lint
+      - name: Lint Frontend Code
+        run: |
+          cd frontend
+          npm run lint
+          echo "✅ Linting del frontend completado"
+
+      # Backend: Validar que instala correctamente
+      - name: Validate Backend Dependencies
+        run: |
+          cd backend
+          npm ci
+          echo "✅ Dependencias del backend validadas"
+
+      # Guardar el artefacto compilado del frontend para el siguiente Job
+      - name: Upload Frontend Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+          retention-days: 1
+
+  # Job de Despliegue - Ejecuta solo cuando el build fue exitoso
+  deploy:
+    name: Deploy to Production VPS
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    
+    environment:
+      name: production
+      url: https://sistema-asistencia.local  # Cambiar por tu URL real
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Configure SSH agent and deploy
+      # Descargar la compilación limpia del frontend
+      - name: Download Frontend Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: ./frontend-dist
+
+      # Configurar SSH de forma segura usando la acción oficial
+      - name: Configure SSH Agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+          ssh-known-hosts: ${{ secrets.VPS_SSH_HOST }}
+
+      # Transferir archivos limpios al VPS sin compilar allá
+      - name: Transfer Artifacts to VPS
         run: |
-          # 1. Crear el directorio .ssh y guardar la clave privada
-          mkdir -p ~/.ssh
-          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_vps
-          chmod 600 ~/.ssh/id_vps
+          # Sincronizar el backend (excluyendo node_modules antiguos y .git)
+          echo "📤 Sincronizando backend..."
+          rsync -avz --delete \
+            --exclude=node_modules \
+            --exclude=.git \
+            --exclude=.env \
+            ./backend/ \
+            ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}:/var/www/sistema-asistencia/backend/
           
-          # 2. Agregar el host a known_hosts para evitar confirmación interactiva
-          ssh-keyscan -H "${{ secrets.VPS_SSH_HOST }}" >> ~/.ssh/known_hosts
+          # Sincronizar el frontend ya compilado directamente a la carpeta pública del VPS
+          echo "📤 Sincronizando frontend compilado..."
+          rsync -avz --delete \
+            ./frontend-dist/ \
+            ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}:/var/www/sistema-asistencia/frontend/dist/
           
-          # 3. Conectarse vía SSH usando el cliente nativo y ejecutar comandos
-          echo "Conectando al VPS e iniciando despliegue..."
-          ssh -i ~/.ssh/id_vps -o StrictHostKeyChecking=no "${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}" << 'EOF'
-            # Ir al directorio del proyecto
-            cd /var/www/sistema-asistencia || { echo "Error: Carpeta /var/www/sistema-asistencia no encontrada"; exit 1; }
+          echo "✅ Archivos transferidos exitosamente"
 
-            # Limpiar cualquier residuo de git local y descargar cambios
-            echo "Descargando últimos cambios desde GitHub..."
-            git reset --hard HEAD
-            git pull origin main || { echo "Error al hacer git pull"; exit 1; }
-
-            # A. Configurar y Compilar el Frontend
-            cd frontend || exit 1
-            echo "Instalando dependencias del Frontend..."
-            npm install || { echo "Error en npm install frontend"; exit 1; }
+      # Ejecutar solo tareas de orquestación y reinicio en el VPS
+      - name: Execute Remote Deployment Commands
+        run: |
+          ssh ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }} << 'EOF'
+            set -e
             
-            echo "Compilando Frontend..."
-            npm run build || { echo "Error al compilar el frontend"; exit 1; }
-
-            # B. Configurar e Iniciar/Reiniciar el Backend con PM2
-            cd ../backend || exit 1
-            echo "Instalando dependencias de producción del Backend..."
-            npm install --omit=dev || { echo "Error en npm install backend"; exit 1; }
+            cd /var/www/sistema-asistencia/backend || { echo "❌ Error: Carpeta backend no encontrada"; exit 1; }
             
-            # Reiniciar o Iniciar la app con PM2 (usando npx como salvaguarda de PATH)
-            echo "Reiniciando backend con PM2..."
-            npx pm2 restart ecosystem.config.js || npx pm2 start ecosystem.config.js || { echo "Error al iniciar con PM2"; exit 1; }
+            echo "📦 Instalando dependencias de producción en el Backend..."
+            npm ci --omit=dev || { echo "❌ Error en npm ci backend"; exit 1; }
             
-            # Guardar el estado de PM2
+            echo "🔄 Reiniciando backend con PM2..."
+            npx pm2 restart ecosystem.config.js 2>/dev/null || npx pm2 start ecosystem.config.js || { echo "❌ Error al iniciar con PM2"; exit 1; }
+            
+            # Guardar configuración de PM2
             npx pm2 save
             
             echo "=========================================================="
-            echo "🎉 ¡Despliegue de GitOps completado con éxito en el VPS!"
+            echo "✅ ¡Despliegue completado exitosamente en Producción!"
+            echo "=========================================================="
+            echo "Frontend: /var/www/sistema-asistencia/frontend/dist/"
+            echo "Backend: /var/www/sistema-asistencia/backend"
             echo "=========================================================="
           EOF
+
+      # Notificación de éxito (opcional - descomentar si usas Discord/Slack)
+      - name: Deployment Success
+        if: success()
+        run: |
+          echo "🎉 Despliegue a producción completado"
+          echo "⏰ Fecha: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+
+      # Notificación de fallo (opcional)
+      - name: Deployment Failed
+        if: failure()
+        run: |
+          echo "❌ El despliegue falló"
+          echo "⏰ Fecha: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          exit 1
