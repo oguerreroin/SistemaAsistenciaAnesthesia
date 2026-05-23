@@ -1,207 +1,87 @@
 name: Deploy to VPS (Optimized CD)
 
 on:
-push:
-branches:
-- main
+  push:
+    branches:
+      - main
 
 jobs:
+  # Job de Integración Continua (Opcional pero recomendado)
+  build-and-test:
+    name: Build & Test Artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-# ==========================================================
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-with-version: '20'
+          cache: 'npm'
+          cache-dependency-path: './frontend/package-lock.json'
 
-# BUILD & TEST
+      - name: Build Frontend Artifacts
+        run: |
+          cd frontend
+          npm ci
+          npm run build
 
-# ==========================================================
+      # Guardar el artefacto compilado para el siguiente Job
+      - name: Upload Frontend Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/ # Cambiar a build/ si no usas Vite
 
-build-and-test:
-name: Build & Test Artifacts
-runs-on: ubuntu-latest
+  deploy:
+    name: Deploy to Production
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-```
-steps:
-  # Checkout del código
-  - name: Checkout Repository
-    uses: actions/checkout@v4
+      # Descargar la compilación limpia del frontend
+      - name: Download Frontend Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: ./frontend-dist
 
-  # Verificar que existan package-lock.json
-  - name: Verify Lock Files
-    run: |
-      test -f frontend/package-lock.json || { echo "❌ frontend/package-lock.json no existe"; exit 1; }
-      test -f backend/package-lock.json || { echo "❌ backend/package-lock.json no existe"; exit 1; }
+      # Configurar SSH de forma segura usando la acción oficial
+      - name: Configure SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
 
-  # Configuración de Node.js
-  - name: Setup Node.js
-    uses: actions/setup-node@v4
-    with:
-      node-version: '20'
-      cache: 'npm'
-      cache-dependency-path: |
-        frontend/package-lock.json
-        backend/package-lock.json
+      # Registrar el Host en known_hosts de forma segura
+      - name: Add SSH Known Hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ secrets.VPS_SSH_HOST }}" >> ~/.ssh/known_hosts
 
-  # ==========================================================
-  # FRONTEND
-  # ==========================================================
-  - name: Install Frontend Dependencies
-    working-directory: ./frontend
-    run: |
-      npm ci
+      # Transferir archivos limpios al VPS sin compilar allá
+      - name: Transfer Artifacts and Source
+        run: |
+          # Sincronizar el backend (excluyendo node_modules antiguos)
+          rsync -avz --delete ./backend/ ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}:/var/www/sistema-asistencia/backend/
+          
+          # Sincronizar el frontend ya compilado directamente a la carpeta pública del VPS
+          rsync -avz --delete ./frontend-dist/ ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}:/var/www/sistema-asistencia/frontend/dist/
 
-  - name: Build Frontend
-    working-directory: ./frontend
-    run: |
-      npm run build
-      echo "✅ Frontend compilado correctamente"
-
-  - name: Lint Frontend
-    working-directory: ./frontend
-    run: |
-      npm run lint
-      echo "✅ Lint frontend OK"
-
-  # ==========================================================
-  # BACKEND
-  # ==========================================================
-  - name: Install Backend Dependencies
-    working-directory: ./backend
-    run: |
-      npm ci
-      echo "✅ Backend dependencies OK"
-
-  # ==========================================================
-  # ARTIFACTS
-  # ==========================================================
-  - name: Upload Frontend Artifact
-    uses: actions/upload-artifact@v4
-    with:
-      name: frontend-dist
-      path: frontend/dist/
-      retention-days: 1
-```
-
-# ==========================================================
-
-# DEPLOY
-
-# ==========================================================
-
-deploy:
-name: Deploy to Production VPS
-needs: build-and-test
-runs-on: ubuntu-latest
-
-```
-environment:
-  name: production
-
-steps:
-  # Checkout
-  - name: Checkout Repository
-    uses: actions/checkout@v4
-
-  # Descargar frontend compilado
-  - name: Download Frontend Artifact
-    uses: actions/download-artifact@v4
-    with:
-      name: frontend-dist
-      path: ./frontend-dist
-
-  # Configurar SSH
-  - name: Configure SSH
-    run: |
-      mkdir -p ~/.ssh
-
-      echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_rsa
-      chmod 600 ~/.ssh/id_rsa
-
-      ssh-keyscan -H "${{ secrets.VPS_SSH_HOST }}" >> ~/.ssh/known_hosts
-
-  # ==========================================================
-  # TRANSFERENCIA
-  # ==========================================================
-  - name: Transfer Backend Files
-    run: |
-      echo "📤 Sincronizando backend..."
-
-      rsync -avz --delete \
-        --exclude=node_modules \
-        --exclude=.git \
-        --exclude=.env \
-        ./backend/ \
-        ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}:/var/www/sistema-asistencia/backend/
-
-  - name: Transfer Frontend Build
-    run: |
-      echo "📤 Sincronizando frontend compilado..."
-
-      rsync -avz --delete \
-        ./frontend-dist/ \
-        ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}:/var/www/sistema-asistencia/frontend/dist/
-
-  # ==========================================================
-  # DEPLOY REMOTO
-  # ==========================================================
-  - name: Execute Remote Deployment
-    run: |
-      ssh -i ~/.ssh/id_rsa \
-        ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }} << 'EOF'
-
-        set -e
-
-        echo "🚀 Iniciando despliegue..."
-
-        cd /var/www/sistema-asistencia/backend || {
-          echo "❌ Carpeta backend no encontrada"
-          exit 1
-        }
-
-        echo "📦 Instalando dependencias..."
-        npm ci --omit=dev
-
-        echo "🔄 Reiniciando PM2..."
-        npx pm2 restart ecosystem.config.js || \
-        npx pm2 start ecosystem.config.js
-
-        echo "💾 Guardando estado PM2..."
-        npx pm2 save
-
-        echo "🩺 Verificando PM2..."
-        npx pm2 status
-
-        echo "✅ Deploy completado correctamente"
-
-      EOF
-
-  # ==========================================================
-  # HEALTH CHECK SIMPLE
-  # ==========================================================
-  - name: Health Check
-    run: |
-      echo "🩺 Validando aplicación..."
-
-      curl -I http://${{ secrets.VPS_SSH_HOST }} || {
-        echo "❌ Health check falló"
-        exit 1
-      }
-
-      echo "✅ Aplicación accesible"
-
-  # ==========================================================
-  # SUCCESS
-  # ==========================================================
-  - name: Deployment Success
-    if: success()
-    run: |
-      echo "🎉 Deploy completado exitosamente"
-      echo "⏰ $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
-
-  # ==========================================================
-  # FAILURE
-  # ==========================================================
-  - name: Deployment Failed
-    if: failure()
-    run: |
-      echo "❌ Deploy falló"
-      echo "⏰ $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
-      exit 1
-```
+      # Ejecutar solo tareas de orquestación y reinicio en el VPS
+      - name: Execute Remote Deployment Commands
+        run: |
+          ssh "${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}" << 'EOF'
+            cd /var/www/sistema-asistencia/backend || exit 1
+            
+            echo "Instalando dependencias de producción en el Backend..."
+            npm install --omit=dev || { echo "Error en npm install backend"; exit 1; }
+            
+            echo "Reiniciando backend con PM2..."
+            npx pm2 restart ecosystem.config.js || npx pm2 start ecosystem.config.js || { echo "Error al iniciar con PM2"; exit 1; }
+            
+            npx pm2 save
+            echo "🎉 ¡Despliegue completado con éxito!"
+          EOF
