@@ -50,9 +50,10 @@ CREATE INDEX IF NOT EXISTS idx_marcaciones_fecha ON marcaciones(fecha_hora DESC)
 
 -- Insertar Sedes con coordenadas reales aproximadas de Lima y Chiclayo
 INSERT INTO sedes (nombre, latitud, longitud, radio_permitido_metros) VALUES
-('Clinica Delgado', -12.11531200, -77.02987100, 200),     -- Miraflores, Lima
-('Guardia Civil', -12.09635000, -77.00512000, 250),       -- San Borja, Lima
-('Clinica Chiclayo', -6.77190000, -79.83880000, 300)       -- Chiclayo
+('Clinica Delgado', -12.12170000, -77.03260000, 200),
+('Auna Guardia Civil', -12.10150000, -76.99570000, 200),
+('Auna Chiclayo', -6.77140000, -79.84090000, 200),
+('Condominio Alto Bellavista', -12.05680000, -77.09540000, 200)
 ON CONFLICT DO NOTHING;
 
 -- Insertar Usuarios de prueba (DNI como PIN inicial para pruebas)

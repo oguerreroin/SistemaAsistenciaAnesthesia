@@ -83,6 +83,9 @@ function App() {
   const [filtroTexto, setFiltroTexto] = useState('');
   const [historialLoading, setHistorialLoading] = useState(false);
   
+  // Tab en el Dashboard: 'historial' o 'mensual'
+  const [adminTab, setAdminTab] = useState('historial');
+  
   // Modal de visualización de foto de webcam
   const [selectedPhoto, setSelectedPhoto] = useState(null);
 
@@ -143,17 +146,17 @@ function App() {
     return () => detenerCamara();
   }, [mostrarPantallaCaptura]);
 
-  // --- CONTROLES DE LA PANTALLA 4 (AUTO-LOGOUT EN 3 SEGUNDOS) ---
+  // --- CONTROLES DE LA PANTALLA 4 (AUTO-LOGOUT EN 10 SEGUNDOS) ---
   useEffect(() => {
     if (successMessage) {
-      setCountdown(3);
+      setCountdown(10);
       const countdownTimer = setInterval(() => {
         setCountdown(prev => (prev > 1 ? prev - 1 : 0));
       }, 1000);
 
       const logoutTimer = setTimeout(() => {
         finalizarYLimpiarSesion();
-      }, 3000);
+      }, 10000);
 
       return () => {
         clearInterval(countdownTimer);
@@ -646,6 +649,95 @@ function App() {
     let url = `${API_BASE}/asistencia/exportar/pdf?rango=${rangoHistorial}`;
     if (filtroSede) url += `&sede_id=${filtroSede}`;
     window.open(url, '_blank');
+  };
+
+  // --- REPORTE MENSUAL PIVOTADO (Cálculo Frontend) ---
+  const getReporteMensual = () => {
+    // 1. Agrupar marcaciones por usuario
+    const usuariosMap = {};
+    
+    // Obtener días del mes actual para las columnas (asumimos mes actual)
+    const hoy = new Date();
+    const diasEnMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0).getDate();
+    
+    historial.forEach(m => {
+      if (!usuariosMap[m.usuario_dni]) {
+        usuariosMap[m.usuario_dni] = {
+          nombre: m.usuario_nombre,
+          dias: {},
+          totalAsistencia: 0
+        };
+      }
+      
+      const fecha = new Date(m.fecha_hora);
+      const dia = fecha.getDate();
+      
+      if (!usuariosMap[m.usuario_dni].dias[dia]) {
+        usuariosMap[m.usuario_dni].dias[dia] = { entrada: null, salida: null };
+      }
+      
+      if (m.tipo_marcado === 'ENTRADA') {
+        usuariosMap[m.usuario_dni].dias[dia].entrada = fecha;
+      } else {
+        // Asignar salida solo si hay entrada previa o si es la primera
+        usuariosMap[m.usuario_dni].dias[dia].salida = fecha;
+      }
+    });
+
+    // 2. Calcular horas por día y totales
+    const reporte = [];
+    Object.keys(usuariosMap).forEach(dni => {
+      const u = usuariosMap[dni];
+      const row = { nombre: u.nombre, dias: {}, totalAsistencia: 0 };
+      
+      for (let i = 1; i <= diasEnMes; i++) {
+        const diaData = u.dias[i];
+        let horas = 0;
+        if (diaData && diaData.entrada && diaData.salida) {
+          const diffMs = diaData.salida - diaData.entrada;
+          horas = diffMs > 0 ? diffMs / (1000 * 60 * 60) : 0;
+        } else if (diaData && (diaData.entrada || diaData.salida)) {
+          // Si solo hay una marca, podríamos considerar 0 o un estandar. Pongamos 0 por ahora.
+          horas = 0; 
+        }
+        
+        row.dias[i] = horas > 0 ? parseFloat(horas.toFixed(2)) : 0;
+        row.totalAsistencia += row.dias[i];
+      }
+      row.totalAsistencia = parseFloat(row.totalAsistencia.toFixed(2));
+      reporte.push(row);
+    });
+    
+    return { reporte, diasEnMes };
+  };
+
+  const exportarCSV = () => {
+    const { reporte, diasEnMes } = getReporteMensual();
+    
+    // Generar cabeceras
+    let csv = 'ASISTENCIA,';
+    for (let i = 1; i <= diasEnMes; i++) csv += `${i},`;
+    csv += 'TOTAL ASISTENCIA,TOTAL,EXCLUSIVIDAD,RETEN,ENCARGATURAS,PROC,RNE,ACTIVIDAD ACADEMICA 27,VACACIONES,TOTAL FINAL\n';
+    
+    // Generar filas
+    reporte.forEach(r => {
+      csv += `"${r.nombre}",`;
+      for (let i = 1; i <= diasEnMes; i++) {
+        csv += `${r.dias[i]},`;
+      }
+      csv += `${r.totalAsistencia},${r.totalAsistencia},0,0,0,0,0,0,0,${r.totalAsistencia}\n`;
+    });
+    
+    // Descargar
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `reporte_mensual_${Date.now()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('Reporte CSV generado.', 'success');
   };
 
   // --- ADMINISTRAR USUARIOS ---
@@ -1392,11 +1484,27 @@ function App() {
             <div className="lg:col-span-8 flex flex-col gap-4">
               <div className="glass-panel p-5 flex flex-col gap-4">
                 
-                {/* Filtros e Historial */}
+                {/* Tabs, Filtros e Historial */}
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-slate-800 pb-4">
                   <div className="flex items-center gap-2">
                     <FileText className="h-5 w-5 text-indigo-400" />
-                    <h3 className="text-sm font-extrabold text-white uppercase tracking-wider m-0">Historial General de Asistencias</h3>
+                    <h3 className="text-sm font-extrabold text-white uppercase tracking-wider m-0">Panel de Asistencias</h3>
+                  </div>
+
+                  {/* Tabs de Vistas */}
+                  <div className="flex bg-slate-900 rounded-lg p-1 border border-slate-700/50">
+                    <button
+                      onClick={() => setAdminTab('historial')}
+                      className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${adminTab === 'historial' ? 'bg-indigo-500 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+                    >
+                      Historial General
+                    </button>
+                    <button
+                      onClick={() => setAdminTab('mensual')}
+                      className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${adminTab === 'mensual' ? 'bg-indigo-500 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+                    >
+                      Reporte Mensual
+                    </button>
                   </div>
 
                   <div className="flex flex-wrap gap-2 w-full md:w-auto">
@@ -1429,54 +1537,57 @@ function App() {
                 <div className="flex flex-col sm:flex-row gap-3 justify-between items-center bg-slate-900/40 p-4 rounded-xl border border-slate-800/80">
                   <div className="text-center sm:text-left">
                     <h4 className="text-xs font-bold text-white m-0">Exportaciones para auditoría</h4>
-                    <p className="text-[10px] text-slate-500 m-0 mt-0.5">Reportes en tiempo real optimizados</p>
+                    <p className="text-[10px] text-slate-500 m-0 mt-0.5">Reportes optimizados para Excel/PDF</p>
                   </div>
                   
-                  <div className="flex gap-2 shrink-0">
-                    <button
-                      onClick={exportarExcel}
-                      className="btn-export btn-excel"
-                      title="Descargar Reporte Excel"
-                    >
-                      <FileSpreadsheet className="h-4 w-4" /> Excel
-                    </button>
-                    <button
-                      onClick={exportarPDF}
-                      className="btn-export btn-pdf"
-                      title="Descargar Reporte PDF"
-                    >
-                      <FileDown className="h-4 w-4" /> PDF SUNAFIL
-                    </button>
+                  <div className="flex gap-2 shrink-0 flex-wrap justify-center">
+                    {adminTab === 'historial' ? (
+                      <>
+                        <button onClick={exportarExcel} className="btn-export btn-excel" title="Descargar Reporte Excel">
+                          <FileSpreadsheet className="h-4 w-4" /> Excel Raw
+                        </button>
+                        <button onClick={exportarPDF} className="btn-export btn-pdf" title="Descargar Reporte PDF">
+                          <FileDown className="h-4 w-4" /> PDF SUNAFIL
+                        </button>
+                      </>
+                    ) : (
+                      <button onClick={exportarCSV} className="btn-export btn-excel bg-emerald-600 border-emerald-500 text-white hover:bg-emerald-500 shadow-lg shadow-emerald-500/20" title="Descargar Matriz Mensual CSV">
+                        <FileSpreadsheet className="h-4 w-4" /> Exportar Matriz (CSV)
+                      </button>
+                    )}
                   </div>
                 </div>
 
-                {/* Buscador de Colaboradores */}
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Search className="h-4 w-4 text-slate-500" />
+                {/* Buscador de Colaboradores (solo en historial) */}
+                {adminTab === 'historial' && (
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <Search className="h-4 w-4 text-slate-500" />
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Buscar por Nombre, DNI o Rol..."
+                      value={filtroTexto}
+                      onChange={(e) => setFiltroTexto(e.target.value)}
+                      className="w-full bg-slate-900/60 border border-slate-700 rounded-xl py-2.5 pl-9 pr-4 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                    />
                   </div>
-                  <input
-                    type="text"
-                    placeholder="Buscar por Nombre, DNI o Rol..."
-                    value={filtroTexto}
-                    onChange={(e) => setFiltroTexto(e.target.value)}
-                    className="w-full bg-slate-900/60 border border-slate-700 rounded-xl py-2.5 pl-9 pr-4 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
+                )}
 
-                {/* Tabla de Resultados */}
-                <div className="admin-table-wrapper overflow-x-auto w-full border border-slate-800/80 rounded-xl bg-slate-950/40">
-                  <table className="w-full border-collapse text-left text-xs">
-                    <thead>
-                      <tr className="bg-slate-900/80 border-b border-slate-800 text-slate-400 font-semibold text-[10px] tracking-wide">
-                        <th className="p-3">Colaborador / DNI</th>
-                        <th className="p-3">Sede Clínica</th>
-                        <th className="p-3">Marcado</th>
-                        <th className="p-3">Fecha y Hora (Lim)</th>
-                        <th className="p-3">Distancia GPS</th>
-                        <th className="p-3 text-center">Foto y Mapa</th>
-                      </tr>
-                    </thead>
+                {/* Tabla de Resultados: Historial */}
+                {adminTab === 'historial' && (
+                  <div className="admin-table-wrapper overflow-x-auto w-full border border-slate-800/80 rounded-xl bg-slate-950/40 mt-2">
+                    <table className="w-full border-collapse text-left text-xs admin-table">
+                      <thead>
+                        <tr className="bg-slate-900/80 border-b border-slate-800 text-slate-400 font-semibold text-[10px] tracking-wide uppercase">
+                          <th className="p-3 sticky-col">Colaborador / DNI</th>
+                          <th className="p-3">Sede Clínica</th>
+                          <th className="p-3">Marcado</th>
+                          <th className="p-3">Fecha y Hora</th>
+                          <th className="p-3">Distancia GPS</th>
+                          <th className="p-3 text-center">Foto y Mapa</th>
+                        </tr>
+                      </thead>
                     <tbody className="divide-y divide-slate-900">
                       {historialLoading ? (
                         Array.from({ length: 5 }).map((_, idx) => (
@@ -1576,11 +1687,87 @@ function App() {
                         </tr>
                       )}
                     </tbody>
-                  </table>
-                </div>
+                    </table>
+                    
+                    {/* Empty State */}
+                    {!historialLoading && historialFiltrado.length === 0 && (
+                      <div className="flex flex-col items-center justify-center p-12 text-center border-t border-slate-800/50 bg-slate-900/20">
+                        <div className="h-14 w-14 rounded-full bg-slate-800 flex items-center justify-center mb-4">
+                          <FileText className="h-6 w-6 text-slate-500" />
+                        </div>
+                        <h4 className="text-sm font-bold text-slate-300 m-0 mb-1">No hay registros</h4>
+                        <p className="text-xs text-slate-500 m-0 max-w-xs">No se encontraron marcaciones que coincidan con los filtros actuales.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Tabla de Resultados: Reporte Mensual */}
+                {adminTab === 'mensual' && (() => {
+                  const { reporte, diasEnMes } = getReporteMensual();
+                  return (
+                    <div className="admin-table-wrapper overflow-x-auto w-full border border-slate-800/80 rounded-xl bg-slate-950/40 mt-2 monthly-report-container">
+                      <table className="w-full border-collapse text-left text-[10px] admin-table report-table whitespace-nowrap">
+                        <thead>
+                          <tr className="bg-slate-900/90 border-b border-slate-800 text-indigo-300 font-bold tracking-wide">
+                            <th className="p-2 sticky-col bg-slate-900/90 z-10 border-r border-slate-700/50 min-w-[150px]">ASISTENCIA</th>
+                            {Array.from({ length: diasEnMes }).map((_, i) => (
+                              <th key={i} className="p-2 text-center text-slate-400 border-r border-slate-800/50">{i + 1}</th>
+                            ))}
+                            <th className="p-2 text-center bg-indigo-900/20 border-x border-slate-700/50">TOTAL ASI</th>
+                            <th className="p-2 text-center border-r border-slate-800/50 text-slate-400">TOTAL</th>
+                            <th className="p-2 text-center border-r border-slate-800/50 text-slate-400">EXCLU</th>
+                            <th className="p-2 text-center border-r border-slate-800/50 text-slate-400">RETEN</th>
+                            <th className="p-2 text-center border-r border-slate-800/50 text-slate-400">ENCARG</th>
+                            <th className="p-2 text-center border-r border-slate-800/50 text-slate-400">PROC</th>
+                            <th className="p-2 text-center border-r border-slate-800/50 text-slate-400">RNE</th>
+                            <th className="p-2 text-center border-r border-slate-800/50 text-slate-400">ACT. ACAD</th>
+                            <th className="p-2 text-center border-r border-slate-800/50 text-slate-400">VACAC</th>
+                            <th className="p-2 text-center bg-indigo-900/20">TOTAL</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/50">
+                          {reporte.length === 0 ? (
+                            <tr>
+                              <td colSpan={diasEnMes + 11} className="p-8 text-center text-slate-500">
+                                No hay datos en el rango seleccionado. Cambie el filtro a "Este Mes".
+                              </td>
+                            </tr>
+                          ) : (
+                            reporte.map((r, idx) => (
+                              <tr key={idx} className="hover:bg-slate-800/50 transition-colors">
+                                <td className="p-2 sticky-col bg-slate-950 font-bold text-white border-r border-slate-800/80 text-xs">
+                                  {r.nombre}
+                                </td>
+                                {Array.from({ length: diasEnMes }).map((_, i) => (
+                                  <td key={i} className={`p-2 text-center border-r border-slate-800/30 ${r.dias[i+1] > 0 ? 'text-emerald-400 font-semibold' : 'text-slate-600'}`}>
+                                    {r.dias[i+1]}
+                                  </td>
+                                ))}
+                                <td className="p-2 text-center font-bold text-indigo-300 bg-indigo-900/10 border-x border-slate-800/80">
+                                  {r.totalAsistencia}
+                                </td>
+                                <td className="p-2 text-center text-slate-400 border-r border-slate-800/50">{r.totalAsistencia}</td>
+                                <td className="p-2 text-center text-slate-600 border-r border-slate-800/50">0</td>
+                                <td className="p-2 text-center text-slate-600 border-r border-slate-800/50">0</td>
+                                <td className="p-2 text-center text-slate-600 border-r border-slate-800/50">0</td>
+                                <td className="p-2 text-center text-slate-600 border-r border-slate-800/50">0</td>
+                                <td className="p-2 text-center text-slate-600 border-r border-slate-800/50">0</td>
+                                <td className="p-2 text-center text-slate-600 border-r border-slate-800/50">0</td>
+                                <td className="p-2 text-center text-slate-600 border-r border-slate-800/50">0</td>
+                                <td className="p-2 text-center font-bold text-white bg-slate-900">
+                                  {r.totalAsistencia}
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })}
               </div>
             </div>
-
           </div>
         )}
 

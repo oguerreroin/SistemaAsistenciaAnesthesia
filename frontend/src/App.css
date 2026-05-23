@@ -484,10 +484,22 @@ form.login-form {
   }
 }
 
-@media (min-width: 900px) {
-  .sede-grid {
-    grid-template-columns: repeat(3, 1fr);
-  }
+/* --- Admin Tables & Sticky Columns --- */
+.monthly-report-container {
+  max-height: 70vh;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.report-table th, .report-table td {
+  min-width: 30px;
+}
+
+.sticky-col {
+  position: sticky;
+  left: 0;
+  z-index: 20;
+  box-shadow: 2px 0 5px -2px rgba(0,0,0,0.5);
 }
 
 /* --- Small phones (< 480px) --- */
@@ -554,8 +566,12 @@ form.login-form {
     -webkit-overflow-scrolling: touch;
   }
 
-  .admin-table-wrapper table {
+  .admin-table-wrapper table.admin-table {
     min-width: 700px;
+  }
+  
+  .admin-table-wrapper table.report-table {
+    min-width: 1200px;
   }
 }
 
