@@ -26,11 +26,14 @@ import {
   Activity,
   ShieldCheck,
   CheckCircle,
-  HelpCircle
+  HelpCircle,
+  Building2
 } from 'lucide-react';
+import './App.css';
 
 // Ajustar direcciones de API de forma dinámica para desarrollo y producción
 const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+
   ? 'http://localhost:5000/api' 
   : '/api';
 const STORAGE_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
@@ -729,65 +732,63 @@ function App() {
         ))}
       </div>
 
-      {/* --- HEADER SUPERIOR SAAS --- */}
-      <header className="flex flex-col md:flex-row justify-between items-center py-4 mb-6 border-b border-slate-800 gap-4">
-        <div className="flex items-center gap-4">
-          <div className="h-12 w-12 rounded-xl bg-white p-1 flex items-center justify-center shadow-lg shadow-cyan-500/20 overflow-hidden">
-            <img src="/logo.png" alt="Anesthesia Healthcare Logo" className="h-full w-full object-contain" />
+      {/* --- HEADER --- */}
+      <header className="app-header flex flex-col md:flex-row justify-between items-center py-4 mb-6 border-b border-slate-800 gap-4">
+        <div className="flex items-center gap-3">
+          <div className="h-10 w-10 rounded-xl bg-white p-1 flex items-center justify-center overflow-hidden">
+            <img src="/logo.png" alt="Anesthesia Healthcare" className="h-full w-full object-contain" />
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-white m-0 flex items-center gap-2">
+            <h1 className="text-base font-bold tracking-tight text-white m-0">
               Anesthesia Healthcare
             </h1>
-            <div className="flex items-center gap-2 mt-0.5">
-              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              <p className="text-[10px] text-emerald-400 m-0 font-bold uppercase tracking-wider">Servicio Activo</p>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-600 animate-pulse"></span>
+              <p className="text-[9px] text-slate-400 m-0 font-semibold">Sistema activo</p>
             </div>
           </div>
         </div>
 
-        {/* Reloj Digital y Calendario Integrados */}
-        <div className="flex items-center gap-4 md:gap-6 glass-panel py-2.5 px-5">
-          <div className="flex items-center gap-2 text-slate-300">
-            <Calendar className="h-4 w-4 text-indigo-400" />
-            <span className="text-xs font-semibold">
-              {currentTime.toLocaleDateString('es-PE', { weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase()}
+        <div className="header-actions flex items-center gap-3">
+          {/* Reloj */}
+          <div className="flex items-center gap-3 text-slate-400 text-xs">
+            <span className="font-medium">
+              {currentTime.toLocaleDateString('es-PE', { weekday: 'short', day: 'numeric', month: 'short' })}
+            </span>
+            <span className="text-slate-600">·</span>
+            <span className="font-mono font-semibold text-slate-300">
+              {currentTime.toLocaleTimeString('es-PE', { hour12: false })}
             </span>
           </div>
-          <div className="h-4 w-px bg-slate-800"></div>
-          <div className="flex items-center gap-2 text-indigo-300 font-mono text-sm font-bold">
-            <Clock className="h-4 w-4 text-indigo-400 animate-pulse" />
-            <span>{currentTime.toLocaleTimeString('es-PE', { hour12: false })}</span>
-          </div>
-        </div>
 
-        {/* Botón Panel Administrativo */}
-        <button
-          onClick={() => {
-            setErrorMessage('');
-            setAdminSuccessMsg('');
-            if (adminLoggedIn) {
-              setAdminLoggedIn(false);
-              setIsAdminMode(false);
-              showToast('Saliendo del panel administrativo.', 'info');
-            } else {
-              setIsAdminMode(!isAdminMode);
-            }
-          }}
-          className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-lg border transition-colors glass-panel border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/10 cursor-pointer"
-        >
-          {adminLoggedIn ? (
-            <>
-              <LogOut className="h-3.5 w-3.5 text-rose-400" />
-              Cerrar Dashboard
-            </>
-          ) : (
-            <>
-              <Settings className="h-3.5 w-3.5 text-indigo-400" />
-              {isAdminMode ? 'Volver al Kiosko' : 'Panel de Administración'}
-            </>
-          )}
-        </button>
+          {/* Botón Admin */}
+          <button
+            onClick={() => {
+              setErrorMessage('');
+              setAdminSuccessMsg('');
+              if (adminLoggedIn) {
+                setAdminLoggedIn(false);
+                setIsAdminMode(false);
+                showToast('Saliendo del panel administrativo.', 'info');
+              } else {
+                setIsAdminMode(!isAdminMode);
+              }
+            }}
+            className="flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 cursor-pointer transition-colors"
+          >
+            {adminLoggedIn ? (
+              <>
+                <LogOut className="h-3.5 w-3.5 text-rose-400" />
+                Cerrar
+              </>
+            ) : (
+              <>
+                <Settings className="h-3.5 w-3.5 text-slate-400" />
+                {isAdminMode ? 'Kiosko' : 'Admin'}
+              </>
+            )}
+          </button>
+        </div>
       </header>
 
       {/* --- PANTALLA PRINCIPAL CON ENRUTADO --- */}
@@ -814,15 +815,15 @@ function App() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 max-w-5xl mx-auto w-full items-center">
             
             {/* Columna Izquierda: Mensaje de Bienvenida */}
-            <div className="lg:col-span-7 flex flex-col gap-5 text-center lg:text-left pr-4">
-              <span className="inline-flex self-center lg:self-start items-center gap-1.5 px-3 py-1 text-[10px] font-bold text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 rounded-full tracking-wider uppercase">
-                <ShieldCheck className="h-3.5 w-3.5 text-indigo-400" /> Registro de Asistencia
+            <div className="hidden lg:flex lg:col-span-7 flex-col gap-5 text-center lg:text-left pr-4">
+              <span className="inline-flex self-center lg:self-start items-center gap-1.5 px-3 py-1 text-[10px] font-semibold text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 rounded-full tracking-wide">
+                <ShieldCheck className="h-3.5 w-3.5 text-indigo-400" /> Control de asistencia
               </span>
               <h2 className="text-4xl font-extrabold text-white leading-tight">
-                Control de Asistencia <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-300">Anesthesia Healthcare</span>
+                Registre su asistencia en <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-300">Anesthesia Healthcare</span>
               </h2>
               <p className="text-sm text-slate-400 max-w-lg leading-relaxed">
-                Registre su entrada y salida de manera rápida y segura en su sede autorizada.
+                Ingrese su DNI y PIN para marcar su entrada o salida de forma segura.
               </p>
               
               <div className="flex flex-wrap gap-4 justify-center lg:justify-start mt-2">
@@ -831,7 +832,7 @@ function App() {
                     <MapPin className="text-indigo-400 h-5 w-5" />
                   </div>
                   <div className="text-left">
-                    <span className="text-[9px] font-bold text-slate-500 block uppercase">Ubicación</span>
+                    <span className="text-[9px] font-semibold text-slate-500 block">Ubicación</span>
                     <span className="text-xs font-bold text-slate-200">Sede Confirmada</span>
                   </div>
                 </div>
@@ -840,7 +841,7 @@ function App() {
                     <Camera className="text-emerald-400 h-5 w-5" />
                   </div>
                   <div className="text-left">
-                    <span className="text-[9px] font-bold text-slate-500 block uppercase">Seguridad</span>
+                    <span className="text-[9px] font-semibold text-slate-500 block">Seguridad</span>
                     <span className="text-xs font-bold text-slate-200">Verificación Facial</span>
                   </div>
                 </div>
@@ -849,7 +850,7 @@ function App() {
                     <ShieldCheck className="text-cyan-400 h-5 w-5" />
                   </div>
                   <div className="text-left">
-                    <span className="text-[9px] font-bold text-slate-500 block uppercase">Estado</span>
+                    <span className="text-[9px] font-semibold text-slate-500 block">Estado</span>
                     <span className="text-xs font-bold text-slate-200">Registro Oficial</span>
                   </div>
                 </div>
@@ -863,19 +864,19 @@ function App() {
                   <div className="h-16 w-16 rounded-2xl bg-white p-1.5 mb-3 flex items-center justify-center shadow-lg shadow-cyan-500/10 overflow-hidden">
                     <img src="/logo.png" alt="Anesthesia Healthcare Logo" className="h-full w-full object-contain" />
                   </div>
-                  <h3 className="text-base font-extrabold text-white tracking-wide uppercase m-0">Acceso de Personal</h3>
+                  <h3 className="text-base font-bold text-white tracking-wide m-0">Acceso de Personal</h3>
                   <p className="text-xs text-slate-400 mt-1">Identifíquese para registrar asistencia</p>
                 </div>
 
-                <form onSubmit={handleUserLogin} className="flex flex-col gap-3">
+                <form onSubmit={handleUserLogin} className="login-form flex flex-col gap-3">
                   
                   {/* Campo DNI */}
                   <div 
                     onClick={() => setFocusedField('dni')}
                     className={`kiosk-input-container ${focusedField === 'dni' ? 'focused' : ''}`}
                   >
-                    <label className="text-[10px] font-bold text-slate-400 block mb-1 uppercase tracking-wider">
-                      DNI de Colaborador {focusedField === 'dni' && <span className="text-indigo-400 animate-pulse font-bold">(Escribiendo)</span>}
+                    <label className="text-[10px] font-semibold text-slate-400 block mb-1 tracking-wide">
+                      DNI del colaborador {focusedField === 'dni' && <span className="text-indigo-400 font-bold">•</span>}
                     </label>
                     <div className="relative">
                       <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
@@ -896,8 +897,8 @@ function App() {
                     onClick={() => setFocusedField('pin')}
                     className={`kiosk-input-container ${focusedField === 'pin' ? 'focused' : ''}`}
                   >
-                    <label className="text-[10px] font-bold text-slate-400 block mb-1 uppercase tracking-wider">
-                      PIN de Marcación {focusedField === 'pin' && <span className="text-indigo-400 animate-pulse font-bold">(Escribiendo)</span>}
+                    <label className="text-[10px] font-semibold text-slate-400 block mb-1 tracking-wide">
+                      PIN de marcación {focusedField === 'pin' && <span className="text-indigo-400 font-bold">•</span>}
                     </label>
                     <div className="relative">
                       <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
@@ -931,7 +932,7 @@ function App() {
                         type="button"
                         onClick={limpiarPinPad}
                         disabled={loginLoading}
-                        className="keypad-btn text-xs text-red-400 font-bold"
+                        className="keypad-btn keypad-btn-clear text-xs text-red-400 font-bold"
                       >
                         Limpiar
                       </button>
@@ -947,7 +948,7 @@ function App() {
                         type="button"
                         onClick={borrarPinPad}
                         disabled={loginLoading}
-                        className="keypad-btn text-xs text-indigo-400 font-bold"
+                        className="keypad-btn keypad-btn-delete text-xs text-indigo-400 font-bold"
                       >
                         Borrar
                       </button>
@@ -988,12 +989,12 @@ function App() {
         {currentScreen === 'SEDE_SELECT' && (
           <div className="max-w-4xl mx-auto w-full flex flex-col gap-6 animate-scale-in">
             <div className="text-center max-w-xl mx-auto">
-              <span className="text-[10px] bg-indigo-500/10 text-indigo-400 px-3 py-1 rounded-full border border-indigo-500/25 font-bold uppercase tracking-wider">
-                Paso 2: Seleccionar Clínica
+              <span className="text-[10px] bg-indigo-500/10 text-indigo-400 px-3 py-1 rounded-full border border-indigo-500/25 font-semibold tracking-wide">
+                Paso 2 · Seleccionar clínica
               </span>
-              <h3 className="text-2xl font-black text-white mt-3 uppercase tracking-wide">¿Dónde se encuentra hoy?</h3>
+              <h3 className="text-2xl font-extrabold text-white mt-3">¿Dónde se encuentra hoy?</h3>
               <p className="text-xs text-slate-400 mt-1">
-                Hola <strong className="text-slate-200">{currentUser?.nombre}</strong>, seleccione la clínica donde labora hoy para registrar su asistencia.
+                Hola <strong className="text-slate-200">{currentUser?.nombre}</strong>, seleccione la clínica donde labora hoy.
               </p>
             </div>
 
@@ -1021,11 +1022,9 @@ function App() {
                       <div className={`h-14 w-14 rounded-2xl bg-gradient-to-tr ${colorClass} flex items-center justify-center text-white mb-2 shadow-lg`}>
                         {s.nombre.toLowerCase().includes('chiclayo') ? <MapPin className="h-6 w-6" /> : <Compass className="h-6 w-6" />}
                       </div>
-                      <h4 className="text-sm font-bold text-white uppercase tracking-wide m-0">{s.nombre}</h4>
+                      <h4 className="text-sm font-bold text-white m-0">{s.nombre}</h4>
                       <p className="text-[10px] text-slate-400 m-0">{desc}</p>
-                      <div className="mt-2 text-[10px] bg-slate-900 px-3.5 py-1 rounded-full border border-slate-800 text-indigo-300 font-bold">
-                        Zona Autorizada
-                      </div>
+
                     </div>
                   );
                 })
@@ -1048,10 +1047,10 @@ function App() {
             <div className="lg:col-span-7 flex flex-col gap-4">
               <div className="glass-panel p-5 relative">
                 <div className="flex justify-between items-center mb-3">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                    Paso 3: Foto de Registro
+                  <span className="text-[10px] font-semibold text-slate-400 tracking-wide">
+                    Paso 3 · Foto de registro
                   </span>
-                  <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-2.5 py-0.5 rounded-full border border-emerald-500/25 font-bold uppercase tracking-wider">
+                  <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-2.5 py-0.5 rounded-full border border-emerald-500/25 font-semibold tracking-wide">
                     Cámara
                   </span>
                 </div>
@@ -1106,24 +1105,24 @@ function App() {
               <div className="glass-panel p-6 glass-panel-primary flex flex-col gap-4 justify-between min-h-[380px]">
                 <div>
                   <div className="text-center pb-2 border-b border-slate-800">
-                    <h3 className="text-base font-extrabold text-white tracking-wide uppercase m-0">Confirmar Marcación</h3>
+                    <h3 className="text-base font-bold text-white tracking-wide m-0">Confirmar Marcación</h3>
                     <p className="text-xs text-slate-400 mt-1">Revise sus datos antes de marcar</p>
                   </div>
 
                   {/* Caja de Datos */}
                   <div className="bg-slate-950/60 rounded-xl border border-slate-850 p-4 mt-4 flex flex-col gap-3">
                     <div className="flex justify-between items-center pb-2 border-b border-slate-900">
-                      <span className="text-[10px] font-bold text-slate-500 uppercase">Nombre</span>
+                      <span className="text-[10px] font-semibold text-slate-500">Nombre</span>
                       <span className="text-xs font-extrabold text-slate-200">{currentUser?.nombre}</span>
                     </div>
                     <div className="flex justify-between items-center pb-2 border-b border-slate-900">
-                      <span className="text-[10px] font-bold text-slate-500 uppercase">DNI</span>
+                      <span className="text-[10px] font-semibold text-slate-500">DNI</span>
                       <span className="text-xs font-mono text-slate-200">{currentUser?.dni}</span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-bold text-slate-500 uppercase">Sede</span>
-                      <span className="text-xs font-extrabold text-indigo-400 uppercase">
-                        🏢 {sedes.find(s => s.id.toString() === activeSedeId)?.nombre || 'Sede'}
+                      <span className="text-[10px] font-semibold text-slate-500">Sede</span>
+                      <span className="text-xs font-extrabold text-indigo-400">
+                        <Building2 className="h-3.5 w-3.5 inline-flex" style={{verticalAlign: 'text-bottom', marginRight: '4px'}} />{sedes.find(s => s.id.toString() === activeSedeId)?.nombre || 'Sede'}
                       </span>
                     </div>
                   </div>
@@ -1139,7 +1138,7 @@ function App() {
                   <button
                     onClick={() => handleSedeSelect('')}
                     disabled={markingLoading}
-                    className="w-full py-2.5 rounded-lg border border-slate-700 bg-transparent text-slate-300 text-xs font-bold uppercase transition-colors hover:bg-slate-850 cursor-pointer"
+                    className="w-full py-2.5 rounded-lg border border-slate-700 bg-transparent text-slate-300 text-xs font-semibold transition-colors hover:bg-slate-800 cursor-pointer"
                   >
                     Cambiar Sede
                   </button>
@@ -1148,7 +1147,7 @@ function App() {
                   <button
                     onClick={procesarMarcado}
                     disabled={markingLoading}
-                    className={`w-full py-4 rounded-xl text-sm font-extrabold tracking-wide uppercase transition-all duration-300 flex items-center justify-center gap-2 border shadow-lg cursor-pointer ${
+                    className={`w-full py-4 rounded-xl text-sm font-bold tracking-wide transition-all duration-300 flex items-center justify-center gap-2 border shadow-lg cursor-pointer ${
                       markingLoading 
                         ? 'bg-emerald-900/50 border-emerald-700/30 text-emerald-300 cursor-wait' 
                         : 'bg-emerald-600 hover:bg-emerald-500 border-emerald-500/40 text-white shadow-emerald-600/20 active:scale-[0.98]'
@@ -1197,30 +1196,30 @@ function App() {
               {/* Ficha de Asistencia */}
               <div className="bg-slate-950/65 rounded-2xl border border-emerald-500/20 p-5 mb-8 text-left grid grid-cols-2 gap-4">
                 <div className="col-span-2 border-b border-emerald-950/40 pb-2 flex justify-between items-center">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Colaborador</span>
-                  <span className="text-xs font-black text-white uppercase">{successMessage.usuario}</span>
+                  <span className="text-[10px] font-semibold text-slate-500 tracking-wide">Colaborador</span>
+                  <span className="text-xs font-black text-white">{successMessage.usuario}</span>
                 </div>
                 <div className="col-span-2 border-b border-emerald-950/40 pb-2 flex justify-between items-center">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Cargo</span>
+                  <span className="text-[10px] font-semibold text-slate-500 tracking-wide">Cargo</span>
                   <span className="text-xs font-bold text-slate-300">{successMessage.rol}</span>
                 </div>
                 <div className="border-r border-emerald-950/40 pr-2">
-                  <span className="text-[10px] font-bold text-slate-500 block uppercase tracking-wider mb-1">Sede</span>
-                  <span className="text-xs font-extrabold text-white">🏢 {successMessage.sede}</span>
+                  <span className="text-[10px] font-semibold text-slate-500 block tracking-wide mb-1">Sede</span>
+                  <span className="text-xs font-extrabold text-white"><Building2 className="h-3.5 w-3.5 inline-flex" style={{verticalAlign: 'text-bottom', marginRight: '4px'}} />{successMessage.sede}</span>
                 </div>
                 <div className="pl-2">
-                  <span className="text-[10px] font-bold text-slate-500 block uppercase tracking-wider mb-1">Hora</span>
-                  <span className="text-xs font-extrabold text-indigo-300">⏰ {successMessage.hora}</span>
+                  <span className="text-[10px] font-semibold text-slate-500 block tracking-wide mb-1">Hora</span>
+                  <span className="text-xs font-extrabold text-indigo-300"><Clock className="h-3.5 w-3.5 inline-flex" style={{verticalAlign: 'text-bottom', marginRight: '4px'}} />{successMessage.hora}</span>
                 </div>
                 <div className="col-span-2 border-t border-emerald-950/40 pt-3 flex items-center justify-between">
                   <div>
-                    <span className="text-[10px] font-bold text-slate-500 block uppercase tracking-wider">Estado de Ubicación</span>
+                    <span className="text-[10px] font-semibold text-slate-500 block tracking-wide">Estado de ubicación</span>
                     <span className={`text-[11px] font-bold ${successMessage.fueraDeRango ? 'text-amber-400' : 'text-emerald-400'}`}>
                       {successMessage.fueraDeRango ? 'Fuera de Sede' : 'En Sede (Área Autorizada)'}
                     </span>
                   </div>
                   {successMessage.fueraDeRango && (
-                    <div className="bg-amber-500/10 text-amber-400 rounded-lg p-1 border border-amber-500/20 text-[9px] font-bold uppercase tracking-wider">
+                    <div className="bg-amber-500/10 text-amber-400 rounded-lg p-1 border border-amber-500/20 text-[9px] font-semibold tracking-wide">
                       Ubicación Inexacta
                     </div>
                   )}
@@ -1235,7 +1234,7 @@ function App() {
               {/* Botón manual para saltar espera */}
               <button
                 onClick={finalizarYLimpiarSesion}
-                className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-lg shadow-emerald-600/10 cursor-pointer active:scale-[0.98] transition-all"
+                className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold tracking-wide shadow-lg shadow-emerald-600/10 cursor-pointer active:scale-[0.98] transition-all"
               >
                 Listo
               </button>
@@ -1429,8 +1428,8 @@ function App() {
                 {/* Acciones de Exportación de Reportes (Excel / PDF) */}
                 <div className="flex flex-col sm:flex-row gap-3 justify-between items-center bg-slate-900/40 p-4 rounded-xl border border-slate-800/80">
                   <div className="text-center sm:text-left">
-                    <h4 className="text-xs font-bold text-white uppercase m-0">Exportaciones para Auditoría SUNAFIL</h4>
-                    <p className="text-[10px] text-slate-500 m-0 mt-0.5">Reportes masivos en tiempo real con optimización de memoria VPS</p>
+                    <h4 className="text-xs font-bold text-white m-0">Exportaciones para auditoría</h4>
+                    <p className="text-[10px] text-slate-500 m-0 mt-0.5">Reportes en tiempo real optimizados</p>
                   </div>
                   
                   <div className="flex gap-2 shrink-0">
@@ -1466,10 +1465,10 @@ function App() {
                 </div>
 
                 {/* Tabla de Resultados */}
-                <div className="overflow-x-auto w-full border border-slate-800/80 rounded-xl bg-slate-950/40">
+                <div className="admin-table-wrapper overflow-x-auto w-full border border-slate-800/80 rounded-xl bg-slate-950/40">
                   <table className="w-full border-collapse text-left text-xs">
                     <thead>
-                      <tr className="bg-slate-900/80 border-b border-slate-800 text-slate-400 font-bold uppercase tracking-wider">
+                      <tr className="bg-slate-900/80 border-b border-slate-800 text-slate-400 font-semibold text-[10px] tracking-wide">
                         <th className="p-3">Colaborador / DNI</th>
                         <th className="p-3">Sede Clínica</th>
                         <th className="p-3">Marcado</th>
@@ -1527,7 +1526,7 @@ function App() {
                                   <span className={`badge ${rolBadgeClass} scale-75 origin-left py-px`}>{m.usuario_rol}</span>
                                 </div>
                               </td>
-                              <td className="p-3 text-slate-300 font-medium">🏢 {m.sede_nombre}</td>
+                              <td className="p-3 text-slate-300 font-medium"><Building2 className="h-3.5 w-3.5 inline-flex" style={{verticalAlign: 'text-bottom', marginRight: '4px'}} />{m.sede_nombre}</td>
                               <td className="p-3">
                                 <span className={`badge ${m.tipo_marcado === 'ENTRADA' ? 'badge-entrada' : 'badge-salida'}`}>
                                   {m.tipo_marcado}
@@ -1611,8 +1610,8 @@ function App() {
 
       {/* --- FOOTER INFERIOR --- */}
       <footer className="text-center py-4 border-t border-slate-900 mt-8">
-        <p className="text-[9px] text-slate-500 m-0 font-bold uppercase tracking-wider">
-          Anesthesia Healthcare &copy; 2026 - Sistema de Control de Asistencia Enterprise
+        <p className="text-[9px] text-slate-500 m-0 font-medium tracking-wide">
+          Anesthesia Healthcare &copy; 2026 · Control de Asistencia
         </p>
       </footer>
 
