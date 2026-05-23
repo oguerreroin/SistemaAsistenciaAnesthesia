@@ -20,7 +20,7 @@ jobs:
           node-version: '20'
           cache: 'npm'
           # El uso de globbing (**/) le dice que busque en cualquier subcarpeta sin caer en errores estrictos de ruta estática
-          cache-dependency-path: '**/package-lock.json'
+         #continue-on-error:  cache-dependency-path: '**/package-lock.json'
 
       - name: Build Frontend Artifacts
         run: |
