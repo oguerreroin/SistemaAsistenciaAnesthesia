@@ -13,9 +13,9 @@ BEGIN;
 
 -- 2. Insertar las sedes reales
 INSERT INTO sedes (nombre, latitud, longitud, radio_permitido_metros) VALUES
-('Clinica Delgado', -12.12170000, -77.03260000, 200),
-('Auna Guardia Civil', -12.10150000, -76.99570000, 200),
-('Auna Chiclayo', -6.77140000, -79.84090000, 200),
-('Condominio Alto Bellavista', -12.05680000, -77.09540000, 200);
+  ('Clinica Delgado', -12.12170000, -77.03260000, 1000),
+  ('Auna Guardia Civil', -12.10150000, -76.99570000, 1000),
+  ('Auna Chiclayo', -6.77140000, -79.84090000, 1000),
+  ('Condominio Alto Bellavista', -12.05680000, -77.09540000, 1000);
 
 COMMIT;

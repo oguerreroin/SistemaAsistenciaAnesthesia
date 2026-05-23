@@ -62,10 +62,10 @@ const mockDb = {
     }
   ],
   sedes: [
-    { id: 1, nombre: 'Clinica Delgado', latitud: -12.12170000, longitud: -77.03260000, radio_permitido_metros: 200 },
-    { id: 2, nombre: 'Auna Guardia Civil', latitud: -12.10150000, longitud: -76.99570000, radio_permitido_metros: 200 },
-    { id: 3, nombre: 'Auna Chiclayo', latitud: -6.77140000, longitud: -79.84090000, radio_permitido_metros: 200 },
-    { id: 4, nombre: 'Condominio Alto Bellavista', latitud: -12.05680000, longitud: -77.09540000, radio_permitido_metros: 200 }
+    { id: 1, nombre: 'Clinica Delgado', latitud: -12.12170000, longitud: -77.03260000, radio_permitido_metros: 1000 },
+    { id: 2, nombre: 'Auna Guardia Civil', latitud: -12.10150000, longitud: -76.99570000, radio_permitido_metros: 1000 },
+    { id: 3, nombre: 'Auna Chiclayo', latitud: -6.77140000, longitud: -79.84090000, radio_permitido_metros: 1000 },
+    { id: 4, nombre: 'Condominio Alto Bellavista', latitud: -12.05680000, longitud: -77.09540000, radio_permitido_metros: 1000 }
   ],
   marcaciones: []
 };
