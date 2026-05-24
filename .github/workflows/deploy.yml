@@ -58,7 +58,7 @@ jobs:
     
     environment:
       name: production
-      url: https://sistema-asistencia.local  # Cambiar por tu URL real
+      url: https://asistenciahc.tayka.net/  # URL real actualizada
 
     steps:
       - name: Checkout repository
@@ -122,7 +122,7 @@ jobs:
             # Guardar configuración de PM2
             npx pm2 save
             
-            幕==========================================================
+            echo "=========================================================="
             echo "✅ ¡Despliegue completado exitosamente en Producción!"
             echo "=========================================================="
             echo "Frontend: /var/www/sistema-asistencia/frontend/dist/"
@@ -134,7 +134,7 @@ jobs:
       - name: Deployment Success
         if: success()
         run: |
-          echo "🎉 Despliegue a producción completado"
+          echo "🎉 Despliegue a producción completado en https://asistenciahc.tayka.net/"
           echo "⏰ Fecha: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
 
       # Notificación de fallo
