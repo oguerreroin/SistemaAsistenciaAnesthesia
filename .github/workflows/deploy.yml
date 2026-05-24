@@ -93,6 +93,8 @@ jobs:
             --exclude=node_modules \
             --exclude=.git \
             --exclude=.env \
+            --exclude=logs \
+            --exclude=storage \
             ./backend/ \
             ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}:/var/www/sistema-asistencia/backend/
           
@@ -112,6 +114,9 @@ jobs:
             set -e
             
             cd /var/www/sistema-asistencia/backend || { echo "❌ Error: Carpeta backend no encontrada"; exit 1; }
+            
+            echo "📁 Asegurando la existencia de la carpeta de logs..."
+            mkdir -p logs
             
             echo "📦 Instalando dependencias en el Backend..."
             npm install --production || { echo "❌ Error en npm install backend"; exit 1; }
