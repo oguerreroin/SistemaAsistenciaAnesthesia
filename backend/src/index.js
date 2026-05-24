@@ -103,6 +103,26 @@ async function inicializarBaseDatos() {
       );
     `);
 
+    // 3.5. Crear tabla de ajustes_reporte
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ajustes_reporte (
+        id SERIAL PRIMARY KEY,
+        usuario_id INTEGER REFERENCES usuarios(id) ON DELETE CASCADE NOT NULL,
+        mes INTEGER NOT NULL CHECK (mes >= 1 AND mes <= 12),
+        anio INTEGER NOT NULL,
+        asisten_ad NUMERIC(10,2) DEFAULT 0,
+        reten NUMERIC(10,2) DEFAULT 0,
+        exclusi NUMERIC(10,2) DEFAULT 0,
+        proc_val NUMERIC(10,2) DEFAULT 0,
+        rne NUMERIC(10,2) DEFAULT 0,
+        encargatu NUMERIC(10,2) DEFAULT 0,
+        actividades NUMERIC(10,2) DEFAULT 0,
+        vacaciones NUMERIC(10,2) DEFAULT 0,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(usuario_id, mes, anio)
+      );
+    `);
+
     // 4. Crear Índices de rendimiento
     await client.query(`CREATE INDEX IF NOT EXISTS idx_usuarios_dni ON usuarios(dni);`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_marcaciones_usuario_fecha ON marcaciones(usuario_id, fecha_hora DESC);`);
