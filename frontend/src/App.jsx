@@ -47,12 +47,19 @@ import {
 import './App.css';
 
 // Ajustar direcciones de API de forma dinámica para desarrollo y producción
-const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+const isLocalEnv = 
+  window.location.hostname === 'localhost' || 
+  window.location.hostname === '127.0.0.1' || 
+  window.location.hostname.startsWith('192.168.') || 
+  window.location.hostname.startsWith('10.') || 
+  window.location.hostname.startsWith('172.') || 
+  window.location.port === '5173';
 
-  ? 'http://localhost:5000/api' 
+const API_BASE = isLocalEnv 
+  ? `http://${window.location.hostname}:5000/api` 
   : '/api';
-const STORAGE_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
-  ? 'http://localhost:5000' 
+const STORAGE_BASE = isLocalEnv 
+  ? `http://${window.location.hostname}:5000` 
   : '';
 
 function App() {
