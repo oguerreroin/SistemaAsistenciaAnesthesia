@@ -339,6 +339,21 @@ function runMockQuery(text, params = []) {
     };
   }
 
+  // 12.1. SELECT marcaciones con rangos de fechas (Soporte Reporte Analítico)
+  if (queryStr.includes('FROM marcaciones m') && queryStr.includes('m.fecha_hora >= $1') && queryStr.includes('m.fecha_hora <= $2')) {
+    const [startDate, endDate] = params;
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const filtered = mockDb.marcaciones.filter(m => {
+      const d = new Date(m.fecha_hora);
+      return d >= start && d <= end;
+    });
+    return {
+      rows: filtered,
+      rowCount: filtered.length
+    };
+  }
+
   // 13. Historial de marcaciones con filtros
   if (queryStr.includes('FROM marcaciones m') && queryStr.includes('JOIN usuarios u') && queryStr.includes('JOIN sedes s')) {
     let result = mockDb.marcaciones.map(m => {
@@ -368,8 +383,9 @@ function runMockQuery(text, params = []) {
       result = result.filter(m => new Date(m.fecha_hora) >= today);
     } else if (queryStr.includes("date_trunc('week'")) {
       const now = new Date();
-      const first = now.getDate() - now.getDay();
-      const startOfWeek = new Date(now.setDate(first));
+      const day = now.getDay();
+      const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+      const startOfWeek = new Date(now.setDate(diff));
       startOfWeek.setHours(0, 0, 0, 0);
       result = result.filter(m => new Date(m.fecha_hora) >= startOfWeek);
     } else if (queryStr.includes("date_trunc('month'")) {

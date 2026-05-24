@@ -1965,6 +1965,11 @@ function App() {
                                 <span className={`badge ${m.tipo_marcado === 'ENTRADA' ? 'badge-entrada' : 'badge-salida'}`}>
                                   {m.tipo_marcado}
                                 </span>
+                                {m.tipo_marcado === 'SALIDA' && m.horas_trabajadas !== undefined && (
+                                  <div className="text-[10px] text-emerald-400 font-bold mt-1.5 flex items-center gap-1">
+                                    <Clock className="h-3.5 w-3.5 inline text-emerald-400/80" /> Duración: {m.horas_trabajadas} hrs
+                                  </div>
+                                )}
                               </td>
                               <td className="p-3 text-slate-300 font-mono">
                                 <div>{dateStr}</div>
@@ -2055,10 +2060,10 @@ function App() {
                             {Array.from({ length: diasEnPeriodo }).map((_, i) => (
                               <th key={i} className="p-2 text-center text-slate-400 border-r border-slate-800/50">{i + 1}</th>
                             ))}
-                            <th className="p-2 text-center bg-indigo-900/20 border-x border-slate-700/50">TOTAL ASI</th>
+                            <th className="p-2 text-center bg-indigo-900/20 border-x border-slate-700/50">TOTAL ASI (Suma)</th>
                             <th className="p-2 text-center border-r border-slate-800/50 text-indigo-300 bg-indigo-900/10">ASISTEN_AD</th>
-                            <th className="p-2 text-center border-r border-slate-800/50 text-slate-400">TOTAL GC</th>
-                            <th className="p-2 text-center border-r border-slate-800/50 text-slate-400">TOTAL PUNTOS</th>
+                            <th className="p-2 text-center border-r border-slate-800/50 text-slate-400">TOTAL GC (ASI + AD)</th>
+                            <th className="p-2 text-center border-r border-slate-800/50 text-slate-400">PUNTOS BASE (GC * 4)</th>
                             <th className="p-2 text-center border-r border-slate-800/50 text-indigo-300 bg-indigo-900/10">RETEN</th>
                             <th className="p-2 text-center border-r border-slate-800/50 text-indigo-300 bg-indigo-900/10">EXCLUSI</th>
                             <th className="p-2 text-center border-r border-slate-800/50 text-indigo-300 bg-indigo-900/10">PROC</th>
@@ -2066,7 +2071,7 @@ function App() {
                             <th className="p-2 text-center border-r border-slate-800/50 text-indigo-300 bg-indigo-900/10">ENCARG</th>
                             <th className="p-2 text-center border-r border-slate-800/50 text-indigo-300 bg-indigo-900/10">ACT. ACAD</th>
                             <th className="p-2 text-center border-r border-slate-800/50 text-indigo-300 bg-indigo-900/10">VACAC</th>
-                            <th className="p-2 text-center bg-indigo-900/20">TOTAL</th>
+                            <th className="p-2 text-center bg-indigo-900/20">TOTAL FINAL (Puntos + Encarg - Reten + Exclusi)</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-850/50">

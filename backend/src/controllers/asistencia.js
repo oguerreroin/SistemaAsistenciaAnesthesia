@@ -197,6 +197,43 @@ exports.obtenerSedes = async (req, res) => {
   }
 };
 
+// Helper para calcular e inyectar horas_trabajadas en las marcaciones de tipo SALIDA
+async function enriquecerMarcacionesConHoras(rows) {
+  for (let i = 0; i < rows.length; i++) {
+    const m = rows[i];
+    if (m.tipo_marcado === 'SALIDA') {
+      let entrada = rows.slice(i + 1).find(r => 
+        r.usuario_id === m.usuario_id && 
+        r.tipo_marcado === 'ENTRADA' && 
+        new Date(r.fecha_hora) < new Date(m.fecha_hora)
+      );
+
+      if (!entrada) {
+        try {
+          const res = await db.query(
+            `SELECT fecha_hora FROM marcaciones 
+             WHERE usuario_id = $1 AND tipo_marcado = 'ENTRADA' AND fecha_hora < $2 
+             ORDER BY fecha_hora DESC LIMIT 1`,
+            [m.usuario_id, m.fecha_hora]
+          );
+          if (res.rows.length > 0) {
+            entrada = res.rows[0];
+          }
+        } catch (err) {
+          console.error('Error al buscar entrada correspondiente en BD:', err);
+        }
+      }
+
+      if (entrada) {
+        const diffMs = new Date(m.fecha_hora) - new Date(entrada.fecha_hora);
+        const hrs = diffMs / 3600000;
+        m.horas_trabajadas = Math.round(hrs * 100) / 100;
+      }
+    }
+  }
+  return rows;
+}
+
 // Historial de marcaciones con filtros
 exports.obtenerHistorialMarcaciones = async (req, res) => {
   try {
@@ -248,7 +285,8 @@ exports.obtenerHistorialMarcaciones = async (req, res) => {
     queryText += ` ORDER BY m.fecha_hora DESC`;
 
     const historialRes = await db.query(queryText, queryParams);
-    return res.json(historialRes.rows);
+    const enriched = await enriquecerMarcacionesConHoras(historialRes.rows);
+    return res.json(enriched);
   } catch (error) {
     console.error('Error al obtener historial:', error);
     return res.status(500).json({ error: 'Error al obtener el historial de marcaciones.' });
@@ -305,7 +343,8 @@ async function obtenerDatosFiltrados(query) {
   queryText += ` ORDER BY m.fecha_hora DESC`;
 
   const res = await db.query(queryText, queryParams);
-  return res.rows;
+  const enriched = await enriquecerMarcacionesConHoras(res.rows);
+  return enriched;
 }
 
 // Exportacion a Excel optimizada en memoria
@@ -503,7 +542,8 @@ exports.exportarPDF = async (req, res) => {
       if (m.tipo_marcado === 'ENTRADA') {
         doc.fillColor('#047857').font('Helvetica-Bold').text(m.tipo_marcado, colPositions[4] + 4, y + 6, { width: colWidths[4] - 8, align: 'center' });
       } else {
-        doc.fillColor('#B91C1C').font('Helvetica-Bold').text(m.tipo_marcado, colPositions[4] + 4, y + 6, { width: colWidths[4] - 8, align: 'center' });
+        const durStr = m.horas_trabajadas ? ` (${m.horas_trabajadas}h)` : '';
+        doc.fillColor('#B91C1C').font('Helvetica-Bold').text(`${m.tipo_marcado}${durStr}`, colPositions[4] + 4, y + 6, { width: colWidths[4] - 8, align: 'center' });
       }
       doc.font('Helvetica').fillColor('#0F172A');
 
@@ -569,12 +609,10 @@ exports.exportarPDF = async (req, res) => {
 function calcularReporteAnalitico(marcaciones, ajustes, usuarios, sedes, mes, anio, sedeIdFilter) {
   const diasEnMes = new Date(anio, mes, 0).getDate();
   
-  // Filter marcaciones for the specific month/year
+  // Filter marcaciones ONLY by Sede (if filtered), keeping the entire fetched date window for correct night shift pairing!
   const marcsFiltradas = marcaciones.filter(m => {
-    const d = new Date(m.fecha_hora);
-    const matchMes = d.getMonth() + 1 === mes && d.getFullYear() === anio;
     const matchSede = sedeIdFilter ? (m.sede_id === sedeIdFilter) : true;
-    return matchMes && matchSede;
+    return matchSede;
   });
 
   // Group by usuario_id
@@ -604,34 +642,53 @@ function calcularReporteAnalitico(marcaciones, ajustes, usuarios, sedes, mes, an
     const marcasUser = porUsuario[user.id] || [];
     const sede = sedes.find(s => s.id === ((user.id - 1) % 4) + 1) || {};
     
-    // Group marks by day
-    const porDia = {};
-    marcasUser.forEach(m => {
-      const dia = new Date(m.fecha_hora).getDate();
-      if (!porDia[dia]) porDia[dia] = [];
-      porDia[dia].push(m);
-    });
+    // 1. Sort all user's marcaciones chronologically
+    const marcasOrdenadas = marcasUser.sort((a, b) => new Date(a.fecha_hora) - new Date(b.fecha_hora));
 
-    const diasHoras = {};
-    let totalAsistencia = 0;
-
-    for (let d = 1; d <= diasEnMes; d++) {
-      const marksDay = porDia[d] || [];
-      const entradas = marksDay.filter(m => m.tipo_marcado === 'ENTRADA').sort((a, b) => new Date(a.fecha_hora) - new Date(b.fecha_hora));
-      const salidas = marksDay.filter(m => m.tipo_marcado === 'SALIDA').sort((a, b) => new Date(a.fecha_hora) - new Date(b.fecha_hora));
-      
-      let horasDia = 0;
-      const pairs = Math.min(entradas.length, salidas.length);
-      for (let p = 0; p < pairs; p++) {
-        const diff = (new Date(salidas[p].fecha_hora) - new Date(entradas[p].fecha_hora)) / 3600000;
-        if (diff > 0) horasDia += diff;
+    // 2. Pair them into complete shifts
+    const turnos = [];
+    let i = 0;
+    while (i < marcasOrdenadas.length) {
+      const current = marcasOrdenadas[i];
+      if (current.tipo_marcado === 'ENTRADA') {
+        if (i + 1 < marcasOrdenadas.length) {
+          const next = marcasOrdenadas[i + 1];
+          if (next.tipo_marcado === 'SALIDA') {
+            const diff = (new Date(next.fecha_hora) - new Date(current.fecha_hora)) / 3600000;
+            turnos.push({
+              entrada: current,
+              salida: next,
+              horas: diff > 0 ? diff : 0
+            });
+            i += 2;
+            continue;
+          }
+        }
       }
-      horasDia = Math.round(horasDia * 100) / 100;
-      diasHoras[d] = horasDia;
-      totalAsistencia += horasDia;
-      totalesColumnas[d] += horasDia;
+      i++;
     }
 
+    // 3. Impute hours to the day of the ENTRADA, only if the ENTRADA is in the target month/year
+    const diasHoras = {};
+    for (let d = 1; d <= diasEnMes; d++) {
+      diasHoras[d] = 0;
+    }
+    let totalAsistencia = 0;
+
+    turnos.forEach(t => {
+      const dateEntrada = new Date(t.entrada.fecha_hora);
+      if (dateEntrada.getMonth() + 1 === mes && dateEntrada.getFullYear() === anio) {
+        const dia = dateEntrada.getDate();
+        diasHoras[dia] = (diasHoras[dia] || 0) + t.horas;
+        totalAsistencia += t.horas;
+        totalesColumnas[dia] = (totalesColumnas[dia] || 0) + t.horas;
+      }
+    });
+
+    // Round values
+    for (let d = 1; d <= diasEnMes; d++) {
+      diasHoras[d] = Math.round(diasHoras[d] * 100) / 100;
+    }
     totalAsistencia = Math.round(totalAsistencia * 100) / 100;
 
     // Get ajustes for this user
@@ -734,40 +791,41 @@ function calcularDashboardMetricas(reporteAnalitico, marcaciones, sedes, mes, an
     sedeMap[s.id] = { sede: s.nombre, horasTotales: 0, puntos: 0, count: 0 };
   });
 
-  const marcsFiltradas = marcaciones.filter(m => {
-    const d = new Date(m.fecha_hora);
-    return d.getMonth() + 1 === mes && d.getFullYear() === anio;
-  });
-
-  // Group by sede and user for hours calculation
+  // Group by user & clinic to pair their complete turns chronologically
   const porSedeUsuario = {};
-  marcsFiltradas.forEach(m => {
+  marcaciones.forEach(m => {
     const key = `${m.sede_id}_${m.usuario_id}`;
     if (!porSedeUsuario[key]) porSedeUsuario[key] = { sede_id: m.sede_id, marks: [] };
     porSedeUsuario[key].marks.push(m);
   });
 
   Object.values(porSedeUsuario).forEach(({ sede_id, marks }) => {
-    // Group by day
-    const porDia = {};
-    marks.forEach(m => {
-      const dia = new Date(m.fecha_hora).getDate();
-      if (!porDia[dia]) porDia[dia] = [];
-      porDia[dia].push(m);
-    });
-
+    const marcasOrdenadas = marks.sort((a, b) => new Date(a.fecha_hora) - new Date(b.fecha_hora));
+    
     let horasUser = 0;
-    Object.values(porDia).forEach(dayMarks => {
-      const entradas = dayMarks.filter(m => m.tipo_marcado === 'ENTRADA').sort((a, b) => new Date(a.fecha_hora) - new Date(b.fecha_hora));
-      const salidas = dayMarks.filter(m => m.tipo_marcado === 'SALIDA').sort((a, b) => new Date(a.fecha_hora) - new Date(b.fecha_hora));
-      const pairs = Math.min(entradas.length, salidas.length);
-      for (let p = 0; p < pairs; p++) {
-        const diff = (new Date(salidas[p].fecha_hora) - new Date(entradas[p].fecha_hora)) / 3600000;
-        if (diff > 0) horasUser += diff;
+    let i = 0;
+    while (i < marcasOrdenadas.length) {
+      const current = marcasOrdenadas[i];
+      if (current.tipo_marcado === 'ENTRADA') {
+        if (i + 1 < marcasOrdenadas.length) {
+          const next = marcasOrdenadas[i + 1];
+          if (next.tipo_marcado === 'SALIDA') {
+            const diff = (new Date(next.fecha_hora) - new Date(current.fecha_hora)) / 3600000;
+            if (diff > 0) {
+              const dateEntrada = new Date(current.fecha_hora);
+              if (dateEntrada.getMonth() + 1 === mes && dateEntrada.getFullYear() === anio) {
+                horasUser += diff;
+              }
+            }
+            i += 2;
+            continue;
+          }
+        }
       }
-    });
+      i++;
+    }
 
-    if (sedeMap[sede_id]) {
+    if (horasUser > 0 && sedeMap[sede_id]) {
       sedeMap[sede_id].horasTotales += horasUser;
       sedeMap[sede_id].count++;
     }
@@ -796,41 +854,28 @@ exports.obtenerReporteAnalitico = async (req, res) => {
     const anio = parseInt(req.query.anio, 10) || now.getFullYear();
     const sedeIdFilter = req.query.sede_id ? parseInt(req.query.sede_id, 10) : null;
 
-    // Get all marcaciones for the month
+    // Get all marcaciones for the month, expanding by 1 day forward to capture night shifts crossing the month boundary
     const startDate = new Date(anio, mes - 1, 1);
-    const endDate = new Date(anio, mes, 0, 23, 59, 59, 999);
+    const endDate = new Date(anio, mes, 1, 23, 59, 59, 999);
 
-    let marcaciones, ajustes, usuarios, sedes;
+    const marcsRes = await db.query(
+      `SELECT m.id, m.usuario_id, m.sede_id, m.tipo_marcado, m.fecha_hora, m.latitud_marcado, m.longitud_marcado, m.foto_path, m.distancia_metros
+       FROM marcaciones m WHERE m.fecha_hora >= $1 AND m.fecha_hora <= $2`,
+      [startDate, endDate]
+    );
+    const marcaciones = marcsRes.rows;
 
-    // Check if we're in mock mode by trying to access mockDb
-    const dbModule = require('../db');
-    if (dbModule.mockDb && dbModule.mockDb.marcaciones.length > 0) {
-      // Mock mode: use arrays directly
-      marcaciones = dbModule.mockDb.marcaciones;
-      ajustes = dbModule.mockDb.ajustes_reporte;
-      usuarios = dbModule.mockDb.usuarios;
-      sedes = dbModule.mockDb.sedes;
-    } else {
-      // Real DB mode
-      const marcsRes = await db.query(
-        `SELECT m.id, m.usuario_id, m.sede_id, m.tipo_marcado, m.fecha_hora, m.latitud_marcado, m.longitud_marcado, m.foto_path, m.distancia_metros
-         FROM marcaciones m WHERE m.fecha_hora >= $1 AND m.fecha_hora <= $2`,
-        [startDate, endDate]
-      );
-      marcaciones = marcsRes.rows;
+    const ajustesRes = await db.query(
+      'SELECT * FROM ajustes_reporte WHERE mes = $1 AND anio = $2',
+      [mes, anio]
+    );
+    const ajustes = ajustesRes.rows;
 
-      const ajustesRes = await db.query(
-        'SELECT * FROM ajustes_reporte WHERE mes = $1 AND anio = $2',
-        [mes, anio]
-      );
-      ajustes = ajustesRes.rows;
+    const usersRes = await db.query('SELECT id, dni, nombre, rol, status FROM usuarios ORDER BY nombre ASC');
+    const usuarios = usersRes.rows;
 
-      const usersRes = await db.query('SELECT id, dni, nombre, rol, status FROM usuarios ORDER BY nombre ASC');
-      usuarios = usersRes.rows;
-
-      const sedesRes = await db.query('SELECT id, nombre, latitud, longitud, radio_permitido_metros FROM sedes ORDER BY nombre ASC');
-      sedes = sedesRes.rows;
-    }
+    const sedesRes = await db.query('SELECT id, nombre, latitud, longitud, radio_permitido_metros FROM sedes ORDER BY nombre ASC');
+    const sedes = sedesRes.rows;
 
     const resultado = calcularReporteAnalitico(marcaciones, ajustes, usuarios, sedes, mes, anio, sedeIdFilter);
     return res.json(resultado);
@@ -848,37 +893,27 @@ exports.obtenerDashboardMetricas = async (req, res) => {
     const anio = parseInt(req.query.anio, 10) || now.getFullYear();
     const sedeIdFilter = req.query.sede_id ? parseInt(req.query.sede_id, 10) : null;
 
-    let marcaciones, ajustes, usuarios, sedes;
+    const startDate = new Date(anio, mes - 1, 1);
+    const endDate = new Date(anio, mes, 1, 23, 59, 59, 999);
 
-    const dbModule = require('../db');
-    if (dbModule.mockDb && dbModule.mockDb.marcaciones.length > 0) {
-      marcaciones = dbModule.mockDb.marcaciones;
-      ajustes = dbModule.mockDb.ajustes_reporte;
-      usuarios = dbModule.mockDb.usuarios;
-      sedes = dbModule.mockDb.sedes;
-    } else {
-      const startDate = new Date(anio, mes - 1, 1);
-      const endDate = new Date(anio, mes, 0, 23, 59, 59, 999);
+    const marcsRes = await db.query(
+      `SELECT m.id, m.usuario_id, m.sede_id, m.tipo_marcado, m.fecha_hora, m.latitud_marcado, m.longitud_marcado, m.foto_path, m.distancia_metros
+       FROM marcaciones m WHERE m.fecha_hora >= $1 AND m.fecha_hora <= $2`,
+      [startDate, endDate]
+    );
+    const marcaciones = marcsRes.rows;
 
-      const marcsRes = await db.query(
-        `SELECT m.id, m.usuario_id, m.sede_id, m.tipo_marcado, m.fecha_hora, m.latitud_marcado, m.longitud_marcado, m.foto_path, m.distancia_metros
-         FROM marcaciones m WHERE m.fecha_hora >= $1 AND m.fecha_hora <= $2`,
-        [startDate, endDate]
-      );
-      marcaciones = marcsRes.rows;
+    const ajustesRes = await db.query(
+      'SELECT * FROM ajustes_reporte WHERE mes = $1 AND anio = $2',
+      [mes, anio]
+    );
+    const ajustes = ajustesRes.rows;
 
-      const ajustesRes = await db.query(
-        'SELECT * FROM ajustes_reporte WHERE mes = $1 AND anio = $2',
-        [mes, anio]
-      );
-      ajustes = ajustesRes.rows;
+    const usersRes = await db.query('SELECT id, dni, nombre, rol, status FROM usuarios ORDER BY nombre ASC');
+    const usuarios = usersRes.rows;
 
-      const usersRes = await db.query('SELECT id, dni, nombre, rol, status FROM usuarios ORDER BY nombre ASC');
-      usuarios = usersRes.rows;
-
-      const sedesRes = await db.query('SELECT id, nombre, latitud, longitud, radio_permitido_metros FROM sedes ORDER BY nombre ASC');
-      sedes = sedesRes.rows;
-    }
+    const sedesRes = await db.query('SELECT id, nombre, latitud, longitud, radio_permitido_metros FROM sedes ORDER BY nombre ASC');
+    const sedes = sedesRes.rows;
 
     const reporteAnalitico = calcularReporteAnalitico(marcaciones, ajustes, usuarios, sedes, mes, anio, sedeIdFilter);
     const dashboard = calcularDashboardMetricas(reporteAnalitico, marcaciones, sedes, mes, anio);
@@ -945,34 +980,24 @@ exports.exportarReporteMatricial = async (req, res) => {
     const anio = parseInt(req.query.anio, 10) || now.getFullYear();
     const sedeIdFilter = req.query.sede_id ? parseInt(req.query.sede_id, 10) : null;
 
-    let marcaciones, ajustes, usuarios, sedes;
+    const startDate = new Date(anio, mes - 1, 1);
+    const endDate = new Date(anio, mes, 1, 23, 59, 59, 999);
 
-    const dbModule = require('../db');
-    if (dbModule.mockDb && dbModule.mockDb.marcaciones.length > 0) {
-      marcaciones = dbModule.mockDb.marcaciones;
-      ajustes = dbModule.mockDb.ajustes_reporte;
-      usuarios = dbModule.mockDb.usuarios;
-      sedes = dbModule.mockDb.sedes;
-    } else {
-      const startDate = new Date(anio, mes - 1, 1);
-      const endDate = new Date(anio, mes, 0, 23, 59, 59, 999);
+    const marcsRes = await db.query(
+      `SELECT m.id, m.usuario_id, m.sede_id, m.tipo_marcado, m.fecha_hora
+       FROM marcaciones m WHERE m.fecha_hora >= $1 AND m.fecha_hora <= $2`,
+      [startDate, endDate]
+    );
+    const marcaciones = marcsRes.rows;
 
-      const marcsRes = await db.query(
-        `SELECT m.id, m.usuario_id, m.sede_id, m.tipo_marcado, m.fecha_hora
-         FROM marcaciones m WHERE m.fecha_hora >= $1 AND m.fecha_hora <= $2`,
-        [startDate, endDate]
-      );
-      marcaciones = marcsRes.rows;
+    const ajustesRes = await db.query('SELECT * FROM ajustes_reporte WHERE mes = $1 AND anio = $2', [mes, anio]);
+    const ajustes = ajustesRes.rows;
 
-      const ajustesRes = await db.query('SELECT * FROM ajustes_reporte WHERE mes = $1 AND anio = $2', [mes, anio]);
-      ajustes = ajustesRes.rows;
+    const usersRes = await db.query('SELECT id, dni, nombre, rol, status FROM usuarios ORDER BY nombre ASC');
+    const usuarios = usersRes.rows;
 
-      const usersRes = await db.query('SELECT id, dni, nombre, rol, status FROM usuarios ORDER BY nombre ASC');
-      usuarios = usersRes.rows;
-
-      const sedesRes = await db.query('SELECT id, nombre, latitud, longitud, radio_permitido_metros FROM sedes ORDER BY nombre ASC');
-      sedes = sedesRes.rows;
-    }
+    const sedesRes = await db.query('SELECT id, nombre, latitud, longitud, radio_permitido_metros FROM sedes ORDER BY nombre ASC');
+    const sedes = sedesRes.rows;
 
     const reporte = calcularReporteAnalitico(marcaciones, ajustes, usuarios, sedes, mes, anio, sedeIdFilter);
     const { usuarios: dataUsuarios, diasEnPeriodo, totalesColumnas } = reporte;
@@ -991,10 +1016,23 @@ exports.exportarReporteMatricial = async (req, res) => {
     titleRow.alignment = { vertical: 'middle', horizontal: 'center' };
     worksheet.mergeCells(1, 1, 1, diasEnPeriodo + 14);
 
-    // Build column headers
+    // Build column headers with formulas explicitly labeled
     const headers = ['ASISTENCIA'];
     for (let d = 1; d <= diasEnPeriodo; d++) { headers.push(d.toString()); }
-    headers.push('TOTAL ASI', 'ASISTEN_AD', 'TOTAL GC', 'TOTAL PUNTOS', 'RETEN', 'EXCLUSI', 'PROC', 'RNE', 'ENCARGATU', 'ACTIVIDADES', 'VACACIONES', 'TOTAL FINAL');
+    headers.push(
+      'TOTAL ASI (Suma)', 
+      'ASISTEN_AD', 
+      'TOTAL GC (ASI + AD)', 
+      'Puntos Base (GC * 4)', 
+      'RETEN', 
+      'EXCLUSI', 
+      'PROC', 
+      'RNE', 
+      'ENCARGATU', 
+      'ACTIVIDADES', 
+      'VACACIONES', 
+      'Total Final (Puntos + Encargatu - Reten + Exclusi)'
+    );
 
     const headerRow = worksheet.addRow(headers);
     headerRow.font = { name: 'Segoe UI', size: 9, bold: true, color: { argb: 'FFFFFF' } };
@@ -1005,7 +1043,7 @@ exports.exportarReporteMatricial = async (req, res) => {
     // Set column widths
     worksheet.getColumn(1).width = 28; // Nombre
     for (let d = 1; d <= diasEnPeriodo; d++) { worksheet.getColumn(d + 1).width = 6; }
-    for (let c = diasEnPeriodo + 2; c <= diasEnPeriodo + 13; c++) { worksheet.getColumn(c).width = 13; }
+    for (let c = diasEnPeriodo + 2; c <= diasEnPeriodo + 13; c++) { worksheet.getColumn(c).width = 16; }
 
     // Data rows
     dataUsuarios.forEach(user => {
