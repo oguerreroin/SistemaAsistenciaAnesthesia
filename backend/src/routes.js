@@ -70,6 +70,10 @@ router.get('/asistencia/historial', asistenciaController.obtenerHistorialMarcaci
 // Exportaciones de Reportes Masivos (Admin)
 router.get('/asistencia/exportar/excel', asistenciaController.exportarExcel);
 router.get('/asistencia/exportar/pdf', asistenciaController.exportarPDF);
+router.get('/asistencia/reporte-analitico', asistenciaController.obtenerReporteAnalitico);
+router.get('/asistencia/dashboard-metricas', asistenciaController.obtenerDashboardMetricas);
+router.put('/asistencia/ajustes-reporte', asistenciaController.guardarAjustesReporte);
+router.get('/asistencia/exportar/reporte-matricial', asistenciaController.exportarReporteMatricial);
 
 // Autenticación de Usuarios y Admin
 router.post('/auth/login', authController.login);

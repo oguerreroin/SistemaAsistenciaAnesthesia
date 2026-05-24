@@ -29,6 +29,21 @@ import {
   HelpCircle,
   Building2
 } from 'lucide-react';
+import { 
+  ResponsiveContainer, 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  Tooltip, 
+  Legend, 
+  PieChart, 
+  Pie, 
+  Cell, 
+  LineChart, 
+  Line, 
+  CartesianGrid 
+} from 'recharts';
 import './App.css';
 
 // Ajustar direcciones de API de forma dinámica para desarrollo y producción
@@ -83,8 +98,14 @@ function App() {
   const [filtroTexto, setFiltroTexto] = useState('');
   const [historialLoading, setHistorialLoading] = useState(false);
   
-  // Tab en el Dashboard: 'historial' o 'mensual'
+  // Tab en el Dashboard: 'historial', 'reporte', 'lineal', 'dashboard'
   const [adminTab, setAdminTab] = useState('historial');
+  const [reporteData, setReporteData] = useState(null);
+  const [dashboardData, setDashboardData] = useState(null);
+  const [reporteLoading, setReporteLoading] = useState(false);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState(1); // default to 1 (January)
+  const [selectedYear, setSelectedYear] = useState(2026); // default to 2026
   
   // Modal de visualización de foto de webcam
   const [selectedPhoto, setSelectedPhoto] = useState(null);
@@ -635,6 +656,238 @@ function App() {
       cargarHistorialMarcaciones();
     }
   }, [rangoHistorial, filtroSede, adminLoggedIn]);
+
+  const cargarReporteAnalitico = async () => {
+    if (!adminLoggedIn) return;
+    setReporteLoading(true);
+    try {
+      let url = `${API_BASE}/asistencia/reporte-analitico?mes=${selectedMonth}&anio=${selectedYear}`;
+      if (filtroSede) url += `&sede_id=${filtroSede}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        setReporteData(data);
+      }
+    } catch (err) {
+      console.error('Error al cargar reporte analítico:', err);
+      showToast('Error al cargar reporte analítico.', 'error');
+    } finally {
+      setReporteLoading(false);
+    }
+  };
+
+  const cargarDashboardMetricas = async () => {
+    if (!adminLoggedIn) return;
+    setDashboardLoading(true);
+    try {
+      let url = `${API_BASE}/asistencia/dashboard-metricas?mes=${selectedMonth}&anio=${selectedYear}`;
+      if (filtroSede) url += `&sede_id=${filtroSede}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        setDashboardData(data);
+      }
+    } catch (err) {
+      console.error('Error al cargar métricas del dashboard:', err);
+      showToast('Error al cargar métricas del dashboard.', 'error');
+    } finally {
+      setDashboardLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (adminLoggedIn) {
+      if (adminTab === 'reporte' || adminTab === 'lineal') {
+        cargarReporteAnalitico();
+      } else if (adminTab === 'dashboard') {
+        cargarDashboardMetricas();
+      }
+    }
+  }, [adminTab, selectedMonth, selectedYear, filtroSede, adminLoggedIn]);
+
+  const handleCellChange = (userId, field, value) => {
+    const floatVal = parseFloat(value) || 0;
+    setReporteData(prev => {
+      if (!prev) return prev;
+      const updatedUsuarios = prev.usuarios.map(u => {
+        if (u.id === userId) {
+          const updatedUser = { ...u, [field]: floatVal };
+          updatedUser.totalGC = Math.round((updatedUser.totalAsistencia + updatedUser.asisten_ad) * 100) / 100;
+          updatedUser.totalPuntos = Math.round(updatedUser.totalGC * 4 * 100) / 100;
+          updatedUser.totalFinal = Math.round((updatedUser.totalPuntos + updatedUser.encargatu - updatedUser.reten + updatedUser.exclusi) * 100) / 100;
+          return updatedUser;
+        }
+        return u;
+      });
+
+      const totalesColumnas = { ...prev.totalesColumnas };
+      totalesColumnas.asisten_ad = 0;
+      totalesColumnas.totalGC = 0;
+      totalesColumnas.totalPuntos = 0;
+      totalesColumnas.reten = 0;
+      totalesColumnas.exclusi = 0;
+      totalesColumnas.proc_val = 0;
+      totalesColumnas.rne = 0;
+      totalesColumnas.encargatu = 0;
+      totalesColumnas.actividades = 0;
+      totalesColumnas.vacaciones = 0;
+      totalesColumnas.totalFinal = 0;
+
+      updatedUsuarios.forEach(u => {
+        totalesColumnas.asisten_ad += u.asisten_ad;
+        totalesColumnas.totalGC += u.totalGC;
+        totalesColumnas.totalPuntos += u.totalPuntos;
+        totalesColumnas.reten += u.reten;
+        totalesColumnas.exclusi += u.exclusi;
+        totalesColumnas.proc_val += u.proc_val;
+        totalesColumnas.rne += u.rne;
+        totalesColumnas.encargatu += u.encargatu;
+        totalesColumnas.actividades += u.actividades;
+        totalesColumnas.vacaciones += u.vacaciones;
+        totalesColumnas.totalFinal += u.totalFinal;
+      });
+
+      Object.keys(totalesColumnas).forEach(k => {
+        totalesColumnas[k] = Math.round(totalesColumnas[k] * 100) / 100;
+      });
+
+      return {
+        ...prev,
+        usuarios: updatedUsuarios,
+        totalesColumnas
+      };
+    });
+  };
+
+  const handleCellBlur = async (userId, userObj) => {
+    try {
+      const res = await fetch(`${API_BASE}/asistencia/ajustes-reporte`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          usuario_id: userId,
+          mes: selectedMonth,
+          anio: selectedYear,
+          asisten_ad: userObj.asisten_ad,
+          reten: userObj.reten,
+          exclusi: userObj.exclusi,
+          proc_val: userObj.proc_val,
+          rne: userObj.rne,
+          encargatu: userObj.encargatu,
+          actividades: userObj.actividades,
+          vacaciones: userObj.vacaciones
+        })
+      });
+      if (res.ok) {
+        showToast(`Ajustes guardados para ${userObj.nombre.split(' ')[0]}`, 'success');
+      } else {
+        const errData = await res.json();
+        showToast(errData.error || 'No se pudieron guardar los ajustes.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Error al persistir cambios.', 'error');
+    }
+  };
+
+  const getReporteLineal = () => {
+    const pairings = {};
+    historial.forEach(m => {
+      const dateObj = new Date(m.fecha_hora);
+      const dateStr = dateObj.toLocaleDateString('es-PE', { year: 'numeric', month: '2-digit', day: '2-digit' });
+      const key = `${m.usuario_id}_${dateStr}`;
+      
+      if (!pairings[key]) {
+        pairings[key] = {
+          usuario_nombre: m.usuario_nombre,
+          usuario_dni: m.usuario_dni,
+          usuario_rol: m.usuario_rol,
+          fecha: dateStr,
+          entrada: null,
+          salida: null,
+          sede_nombre: m.sede_nombre,
+          distancia: m.distancia_metros,
+          fechaRaw: dateObj
+        };
+      }
+      
+      const timeStr = dateObj.toLocaleTimeString('es-PE', { hour12: false });
+      if (m.tipo_marcado === 'ENTRADA') {
+        if (!pairings[key].entrada || dateObj < pairings[key].entrada.raw) {
+          pairings[key].entrada = { time: timeStr, raw: dateObj };
+        }
+      } else {
+        if (!pairings[key].salida || dateObj > pairings[key].salida.raw) {
+          pairings[key].salida = { time: timeStr, raw: dateObj };
+        }
+      }
+    });
+
+    return Object.values(pairings)
+      .map((p, idx) => {
+        let horas = 0;
+        if (p.entrada && p.salida) {
+          const diffMs = p.salida.raw - p.entrada.raw;
+          horas = diffMs > 0 ? diffMs / 3600000 : 0;
+        }
+        return {
+          id: idx + 1,
+          ...p,
+          horasEfectivas: Math.round(horas * 100) / 100
+        };
+      })
+      .sort((a, b) => b.fechaRaw - a.fechaRaw);
+  };
+
+  const exportarLinealCSV = () => {
+    const pairings = getReporteLineal();
+    let csv = '\uFEFF';
+    csv += 'ID,COLABORADOR,DNI,ROL,FECHA,ENTRADA,SALIDA,HORAS EFECTIVAS,SEDE CLÍNICA\n';
+    pairings.forEach(p => {
+      csv += `${p.id},"${p.usuario_nombre}","${p.usuario_dni}","${p.usuario_rol}","${p.fecha}","${p.entrada ? p.entrada.time : '-'}","${p.salida ? p.salida.time : '-'}",${p.horasEfectivas},"${p.sede_nombre}"\n`;
+    });
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `reporte_lineal_${selectedMonth}_${selectedYear}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('Reporte Lineal CSV generado.', 'success');
+  };
+
+  const exportarDashboardCSV = () => {
+    if (!dashboardData) return;
+    let csv = '\uFEFF';
+    csv += 'SECCIÓN,CLAVE,VALOR\n';
+    
+    csv += 'RESUMEN SEDES,,\n';
+    dashboardData.resumenSedes.forEach(s => {
+      csv += `SEDE,${s.sede},Horas Totales: ${s.horasTotales} | Puntos: ${s.puntos} | Promedio: ${s.promedio} | Estado: ${s.estado}\n`;
+    });
+    
+    csv += 'LEADERBOARD HORAS,,\n';
+    dashboardData.leaderboard.forEach(l => {
+      csv += `COLABORADOR,${l.nombre},${l.horas} horas\n`;
+    });
+    
+    csv += 'DISTRIBUCIÓN DE PUNTOS,,\n';
+    csv += `RANGO,Alto (> 600 pts),${dashboardData.distribucionPuntos.alto}\n`;
+    csv += `RANGO,Medio (400-600 pts),${dashboardData.distribucionPuntos.medio}\n`;
+    csv += `RANGO,Base (200-400 pts),${dashboardData.distribucionPuntos.base}\n`;
+    csv += `RANGO,Revisión (< 200 pts),${dashboardData.distribucionPuntos.revision}\n`;
+    
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `resumen_dashboard_${selectedMonth}_${selectedYear}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('Resumen del Dashboard exportado.', 'success');
+  };
 
   // --- EXPORTACIONES DEL ADMINISTRADOR ---
   const exportarExcel = () => {
@@ -1492,32 +1745,75 @@ function App() {
                   </div>
 
                   {/* Tabs de Vistas */}
-                  <div className="flex bg-slate-900 rounded-lg p-1 border border-slate-700/50">
+                  <div className="admin-tabs-scroll bg-slate-900 rounded-lg p-1 border border-slate-700/50">
                     <button
                       onClick={() => setAdminTab('historial')}
-                      className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${adminTab === 'historial' ? 'bg-indigo-500 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+                      className={`admin-tab-btn ${adminTab === 'historial' ? 'active' : ''}`}
                     >
-                      Historial General
+                      Historial
                     </button>
                     <button
-                      onClick={() => setAdminTab('mensual')}
-                      className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${adminTab === 'mensual' ? 'bg-indigo-500 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+                      onClick={() => setAdminTab('reporte')}
+                      className={`admin-tab-btn ${adminTab === 'reporte' ? 'active' : ''}`}
                     >
-                      Reporte Mensual
+                      Reporte Matricial
+                    </button>
+                    <button
+                      onClick={() => setAdminTab('lineal')}
+                      className={`admin-tab-btn ${adminTab === 'lineal' ? 'active' : ''}`}
+                    >
+                      Reporte Lineal
+                    </button>
+                    <button
+                      onClick={() => setAdminTab('dashboard')}
+                      className={`admin-tab-btn ${adminTab === 'dashboard' ? 'active' : ''}`}
+                    >
+                      Dashboard
                     </button>
                   </div>
 
                   <div className="flex flex-wrap gap-2 w-full md:w-auto">
-                    {/* Filtro Rango */}
-                    <select
-                      value={rangoHistorial}
-                      onChange={(e) => setRangoHistorial(e.target.value)}
-                      className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 font-semibold focus:outline-none cursor-pointer"
-                    >
-                      <option value="hoy">Hoy</option>
-                      <option value="semana">Esta Semana</option>
-                      <option value="mes">Este Mes</option>
-                    </select>
+                    {adminTab === 'historial' ? (
+                      <select
+                        value={rangoHistorial}
+                        onChange={(e) => setRangoHistorial(e.target.value)}
+                        className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 font-semibold focus:outline-none cursor-pointer"
+                      >
+                        <option value="hoy">Hoy</option>
+                        <option value="semana">Esta Semana</option>
+                        <option value="mes">Este Mes</option>
+                      </select>
+                    ) : (
+                      <>
+                        <select
+                          value={selectedMonth}
+                          onChange={(e) => setSelectedMonth(parseInt(e.target.value, 10))}
+                          className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 font-semibold focus:outline-none cursor-pointer"
+                        >
+                          <option value={1}>Enero</option>
+                          <option value={2}>Febrero</option>
+                          <option value={3}>Marzo</option>
+                          <option value={4}>Abril</option>
+                          <option value={5}>Mayo</option>
+                          <option value={6}>Junio</option>
+                          <option value={7}>Julio</option>
+                          <option value={8}>Agosto</option>
+                          <option value={9}>Septiembre</option>
+                          <option value={10}>Octubre</option>
+                          <option value={11}>Noviembre</option>
+                          <option value={12}>Diciembre</option>
+                        </select>
+                        <select
+                          value={selectedYear}
+                          onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
+                          className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 font-semibold focus:outline-none cursor-pointer"
+                        >
+                          <option value={2025}>2025</option>
+                          <option value={2026}>2026</option>
+                          <option value={2027}>2027</option>
+                        </select>
+                      </>
+                    )}
 
                     {/* Filtro Sede */}
                     <select
@@ -1537,11 +1833,11 @@ function App() {
                 <div className="flex flex-col sm:flex-row gap-3 justify-between items-center bg-slate-900/40 p-4 rounded-xl border border-slate-800/80">
                   <div className="text-center sm:text-left">
                     <h4 className="text-xs font-bold text-white m-0">Exportaciones para auditoría</h4>
-                    <p className="text-[10px] text-slate-500 m-0 mt-0.5">Reportes optimizados para Excel/PDF</p>
+                    <p className="text-[10px] text-slate-500 m-0 mt-0.5">Reportes optimizados para Excel/PDF/CSV</p>
                   </div>
                   
                   <div className="flex gap-2 shrink-0 flex-wrap justify-center">
-                    {adminTab === 'historial' ? (
+                    {adminTab === 'historial' && (
                       <>
                         <button onClick={exportarExcel} className="btn-export btn-excel" title="Descargar Reporte Excel">
                           <FileSpreadsheet className="h-4 w-4" /> Excel Raw
@@ -1550,9 +1846,29 @@ function App() {
                           <FileDown className="h-4 w-4" /> PDF SUNAFIL
                         </button>
                       </>
-                    ) : (
-                      <button onClick={exportarCSV} className="btn-export btn-excel bg-emerald-600 border-emerald-500 text-white hover:bg-emerald-500 shadow-lg shadow-emerald-500/20" title="Descargar Matriz Mensual CSV">
-                        <FileSpreadsheet className="h-4 w-4" /> Exportar Matriz (CSV)
+                    )}
+                    {adminTab === 'reporte' && (
+                      <button 
+                        onClick={() => {
+                          showToast('Generando reporte matricial...', 'info');
+                          let url = `${API_BASE}/asistencia/exportar/reporte-matricial?mes=${selectedMonth}&anio=${selectedYear}`;
+                          if (filtroSede) url += `&sede_id=${filtroSede}`;
+                          window.open(url, '_blank');
+                        }} 
+                        className="btn-export btn-excel" 
+                        title="Descargar Reporte Matricial Excel"
+                      >
+                        <FileSpreadsheet className="h-4 w-4" /> Exportar Excel
+                      </button>
+                    )}
+                    {adminTab === 'lineal' && (
+                      <button onClick={exportarLinealCSV} className="btn-export btn-excel" title="Exportar Reporte Lineal CSV">
+                        <FileSpreadsheet className="h-4 w-4" /> Exportar CSV
+                      </button>
+                    )}
+                    {adminTab === 'dashboard' && (
+                      <button onClick={exportarDashboardCSV} className="btn-export btn-excel" title="Exportar Resumen Dashboard CSV">
+                        <FileSpreadsheet className="h-4 w-4" /> Exportar CSV
                       </button>
                     )}
                   </div>
@@ -1702,67 +2018,462 @@ function App() {
                   </div>
                 )}
 
-                {/* Tabla de Resultados: Reporte Mensual */}
-                {adminTab === 'mensual' && (() => {
-                  const { reporte, diasEnMes } = getReporteMensual();
+                {/* Tabla de Resultados: Reporte Matricial */}
+                {adminTab === 'reporte' && (() => {
+                  if (reporteLoading) {
+                    return (
+                      <div className="flex flex-col items-center justify-center p-12 text-slate-500 text-sm">
+                        <RefreshCw className="h-6 w-6 animate-spin text-indigo-400 mb-2" />
+                        Cargando reporte matricial...
+                      </div>
+                    );
+                  }
+                  if (!reporteData || !reporteData.usuarios || reporteData.usuarios.length === 0) {
+                    return (
+                      <div className="flex flex-col items-center justify-center p-12 text-slate-500 text-sm">
+                        <FileText className="h-8 w-8 text-slate-650 mb-2" />
+                        No hay datos en el rango seleccionado.
+                      </div>
+                    );
+                  }
+
+                  const { usuarios, diasEnPeriodo, totalesColumnas } = reporteData;
+
                   return (
                     <div className="admin-table-wrapper overflow-x-auto w-full border border-slate-800/80 rounded-xl bg-slate-950/40 mt-2 monthly-report-container">
                       <table className="w-full border-collapse text-left text-[10px] admin-table report-table whitespace-nowrap">
                         <thead>
                           <tr className="bg-slate-900/90 border-b border-slate-800 text-indigo-300 font-bold tracking-wide">
                             <th className="p-2 sticky-col bg-slate-900/90 z-10 border-r border-slate-700/50 min-w-[150px]">ASISTENCIA</th>
-                            {Array.from({ length: diasEnMes }).map((_, i) => (
+                            {Array.from({ length: diasEnPeriodo }).map((_, i) => (
                               <th key={i} className="p-2 text-center text-slate-400 border-r border-slate-800/50">{i + 1}</th>
                             ))}
                             <th className="p-2 text-center bg-indigo-900/20 border-x border-slate-700/50">TOTAL ASI</th>
-                            <th className="p-2 text-center border-r border-slate-800/50 text-slate-400">TOTAL</th>
-                            <th className="p-2 text-center border-r border-slate-800/50 text-slate-400">EXCLU</th>
-                            <th className="p-2 text-center border-r border-slate-800/50 text-slate-400">RETEN</th>
-                            <th className="p-2 text-center border-r border-slate-800/50 text-slate-400">ENCARG</th>
-                            <th className="p-2 text-center border-r border-slate-800/50 text-slate-400">PROC</th>
-                            <th className="p-2 text-center border-r border-slate-800/50 text-slate-400">RNE</th>
-                            <th className="p-2 text-center border-r border-slate-800/50 text-slate-400">ACT. ACAD</th>
-                            <th className="p-2 text-center border-r border-slate-800/50 text-slate-400">VACAC</th>
+                            <th className="p-2 text-center border-r border-slate-800/50 text-indigo-300 bg-indigo-900/10">ASISTEN_AD</th>
+                            <th className="p-2 text-center border-r border-slate-800/50 text-slate-400">TOTAL GC</th>
+                            <th className="p-2 text-center border-r border-slate-800/50 text-slate-400">TOTAL PUNTOS</th>
+                            <th className="p-2 text-center border-r border-slate-800/50 text-indigo-300 bg-indigo-900/10">RETEN</th>
+                            <th className="p-2 text-center border-r border-slate-800/50 text-indigo-300 bg-indigo-900/10">EXCLUSI</th>
+                            <th className="p-2 text-center border-r border-slate-800/50 text-indigo-300 bg-indigo-900/10">PROC</th>
+                            <th className="p-2 text-center border-r border-slate-800/50 text-indigo-300 bg-indigo-900/10">RNE</th>
+                            <th className="p-2 text-center border-r border-slate-800/50 text-indigo-300 bg-indigo-900/10">ENCARG</th>
+                            <th className="p-2 text-center border-r border-slate-800/50 text-indigo-300 bg-indigo-900/10">ACT. ACAD</th>
+                            <th className="p-2 text-center border-r border-slate-800/50 text-indigo-300 bg-indigo-900/10">VACAC</th>
                             <th className="p-2 text-center bg-indigo-900/20">TOTAL</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-800/50">
-                          {reporte.length === 0 ? (
-                            <tr>
-                              <td colSpan={diasEnMes + 11} className="p-8 text-center text-slate-500">
-                                No hay datos en el rango seleccionado. Cambie el filtro a "Este Mes".
+                        <tbody className="divide-y divide-slate-850/50">
+                          {usuarios.map((r) => (
+                            <tr key={r.id} className="hover:bg-slate-800/30 transition-colors">
+                              <td className="p-2 sticky-col bg-slate-950 font-bold text-white border-r border-slate-800/80 text-xs">
+                                {r.nombre}
+                              </td>
+                              {Array.from({ length: diasEnPeriodo }).map((_, i) => (
+                                <td key={i} className={`p-2 text-center border-r border-slate-855/30 ${r.diasHoras[i + 1] > 0 ? 'text-emerald-400 font-semibold' : 'text-slate-650'}`}>
+                                  {r.diasHoras[i + 1] || 0}
+                                </td>
+                              ))}
+                              <td className="p-2 text-center font-bold text-slate-300 bg-slate-900/40 border-x border-slate-855">
+                                {r.totalAsistencia}
+                              </td>
+                              <td className="p-2 text-center border-r border-slate-855 bg-indigo-950/20">
+                                <input
+                                  type="number"
+                                  value={r.asisten_ad === 0 ? '' : r.asisten_ad}
+                                  onChange={(e) => handleCellChange(r.id, 'asisten_ad', e.target.value)}
+                                  onBlur={() => handleCellBlur(r.id, r)}
+                                  className="editable-cell"
+                                  placeholder="0"
+                                  min="0"
+                                  step="0.01"
+                                />
+                              </td>
+                              <td className="p-2 text-center font-bold text-slate-300 border-r border-slate-855">{r.totalGC}</td>
+                              <td className="p-2 text-center font-bold text-indigo-400 border-r border-slate-855">{r.totalPuntos}</td>
+                              <td className="p-2 text-center border-r border-slate-855 bg-indigo-950/20">
+                                <input
+                                  type="number"
+                                  value={r.reten === 0 ? '' : r.reten}
+                                  onChange={(e) => handleCellChange(r.id, 'reten', e.target.value)}
+                                  onBlur={() => handleCellBlur(r.id, r)}
+                                  className="editable-cell"
+                                  placeholder="0"
+                                  min="0"
+                                  step="0.01"
+                                />
+                              </td>
+                              <td className="p-2 text-center border-r border-slate-855 bg-indigo-950/20">
+                                <input
+                                  type="number"
+                                  value={r.exclusi === 0 ? '' : r.exclusi}
+                                  onChange={(e) => handleCellChange(r.id, 'exclusi', e.target.value)}
+                                  onBlur={() => handleCellBlur(r.id, r)}
+                                  className="editable-cell"
+                                  placeholder="0"
+                                  min="0"
+                                  step="0.01"
+                                />
+                              </td>
+                              <td className="p-2 text-center border-r border-slate-855 bg-indigo-950/20">
+                                <input
+                                  type="number"
+                                  value={r.proc_val === 0 ? '' : r.proc_val}
+                                  onChange={(e) => handleCellChange(r.id, 'proc_val', e.target.value)}
+                                  onBlur={() => handleCellBlur(r.id, r)}
+                                  className="editable-cell"
+                                  placeholder="0"
+                                  min="0"
+                                  step="0.01"
+                                />
+                              </td>
+                              <td className="p-2 text-center border-r border-slate-855 bg-indigo-950/20">
+                                <input
+                                  type="number"
+                                  value={r.rne === 0 ? '' : r.rne}
+                                  onChange={(e) => handleCellChange(r.id, 'rne', e.target.value)}
+                                  onBlur={() => handleCellBlur(r.id, r)}
+                                  className="editable-cell"
+                                  placeholder="0"
+                                  min="0"
+                                  step="0.01"
+                                />
+                              </td>
+                              <td className="p-2 text-center border-r border-slate-855 bg-indigo-950/20">
+                                <input
+                                  type="number"
+                                  value={r.encargatu === 0 ? '' : r.encargatu}
+                                  onChange={(e) => handleCellChange(r.id, 'encargatu', e.target.value)}
+                                  onBlur={() => handleCellBlur(r.id, r)}
+                                  className="editable-cell"
+                                  placeholder="0"
+                                  min="0"
+                                  step="0.01"
+                                />
+                              </td>
+                              <td className="p-2 text-center border-r border-slate-855 bg-indigo-950/20">
+                                <input
+                                  type="number"
+                                  value={r.actividades === 0 ? '' : r.actividades}
+                                  onChange={(e) => handleCellChange(r.id, 'actividades', e.target.value)}
+                                  onBlur={() => handleCellBlur(r.id, r)}
+                                  className="editable-cell"
+                                  placeholder="0"
+                                  min="0"
+                                  step="0.01"
+                                />
+                              </td>
+                              <td className="p-2 text-center border-r border-slate-855 bg-indigo-950/20">
+                                <input
+                                  type="number"
+                                  value={r.vacaciones === 0 ? '' : r.vacaciones}
+                                  onChange={(e) => handleCellChange(r.id, 'vacaciones', e.target.value)}
+                                  onBlur={() => handleCellBlur(r.id, r)}
+                                  className="editable-cell"
+                                  placeholder="0"
+                                  min="0"
+                                  step="0.01"
+                                />
+                              </td>
+                              <td className="p-2 text-center font-bold text-white bg-slate-900/60 font-mono">
+                                {r.totalFinal}
                               </td>
                             </tr>
-                          ) : (
-                            reporte.map((r, idx) => (
-                              <tr key={idx} className="hover:bg-slate-800/50 transition-colors">
-                                <td className="p-2 sticky-col bg-slate-950 font-bold text-white border-r border-slate-800/80 text-xs">
-                                  {r.nombre}
+                          ))}
+                          
+                          {/* Totales Fila */}
+                          <tr className="totals-row">
+                            <td className="p-2 sticky-col bg-slate-900 z-10 border-r border-slate-700/50">TOTALES</td>
+                            {Array.from({ length: diasEnPeriodo }).map((_, i) => (
+                              <td key={i} className="p-2 text-center border-r border-slate-800/50">
+                                {totalesColumnas[i + 1] || 0}
+                              </td>
+                            ))}
+                            <td className="p-2 text-center bg-indigo-900/10 border-x border-slate-800/80">{totalesColumnas.totalAsi}</td>
+                            <td className="p-2 text-center border-r border-slate-800/50">{totalesColumnas.asisten_ad}</td>
+                            <td className="p-2 text-center border-r border-slate-800/50">{totalesColumnas.totalGC}</td>
+                            <td className="p-2 text-center border-r border-slate-800/50">{totalesColumnas.totalPuntos}</td>
+                            <td className="p-2 text-center border-r border-slate-800/50">{totalesColumnas.reten}</td>
+                            <td className="p-2 text-center border-r border-slate-800/50">{totalesColumnas.exclusi}</td>
+                            <td className="p-2 text-center border-r border-slate-800/50">{totalesColumnas.proc_val}</td>
+                            <td className="p-2 text-center border-r border-slate-800/50">{totalesColumnas.rne}</td>
+                            <td className="p-2 text-center border-r border-slate-800/50">{totalesColumnas.encargatu}</td>
+                            <td className="p-2 text-center border-r border-slate-800/50">{totalesColumnas.actividades}</td>
+                            <td className="p-2 text-center border-r border-slate-800/50">{totalesColumnas.vacaciones}</td>
+                            <td className="p-2 text-center bg-indigo-900/20">{totalesColumnas.totalFinal}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })}
+
+                {/* Tabla de Resultados: Reporte Lineal */}
+                {adminTab === 'lineal' && (() => {
+                  if (historialLoading) {
+                    return (
+                      <div className="flex flex-col items-center justify-center p-12 text-slate-500 text-sm">
+                        <RefreshCw className="h-6 w-6 animate-spin text-indigo-400 mb-2" />
+                        Cargando reporte lineal...
+                      </div>
+                    );
+                  }
+                  const linearLogs = getReporteLineal();
+                  return (
+                    <div className="admin-table-wrapper overflow-x-auto w-full border border-slate-800/80 rounded-xl bg-slate-950/40 mt-2">
+                      <table className="w-full border-collapse text-left text-xs admin-table">
+                        <thead>
+                          <tr className="bg-slate-900/80 border-b border-slate-800 text-slate-400 font-semibold text-[10px] tracking-wide uppercase">
+                            <th className="p-3">ID</th>
+                            <th className="p-3">Colaborador / DNI</th>
+                            <th className="p-3">Fecha</th>
+                            <th className="p-3">Hora Entrada</th>
+                            <th className="p-3">Hora Salida</th>
+                            <th className="p-3 text-center">Horas Efectivas</th>
+                            <th className="p-3">Sede Clínica</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-900">
+                          {linearLogs.length > 0 ? (
+                            linearLogs.map((p) => (
+                              <tr key={p.id} className="hover:bg-slate-900/40 transition-colors">
+                                <td className="p-3 font-mono text-slate-500">{p.id}</td>
+                                <td className="p-3">
+                                  <div className="font-bold text-white">{p.usuario_nombre}</div>
+                                  <div className="text-[10px] text-slate-500 mt-0.5 flex items-center gap-1.5">
+                                    <span>{p.usuario_dni}</span>
+                                    <span className="badge badge-personal scale-75 origin-left py-px">{p.usuario_rol}</span>
+                                  </div>
                                 </td>
-                                {Array.from({ length: diasEnMes }).map((_, i) => (
-                                  <td key={i} className={`p-2 text-center border-r border-slate-800/30 ${r.dias[i+1] > 0 ? 'text-emerald-400 font-semibold' : 'text-slate-600'}`}>
-                                    {r.dias[i+1]}
-                                  </td>
-                                ))}
-                                <td className="p-2 text-center font-bold text-indigo-300 bg-indigo-900/10 border-x border-slate-800/80">
-                                  {r.totalAsistencia}
-                                </td>
-                                <td className="p-2 text-center text-slate-400 border-r border-slate-800/50">{r.totalAsistencia}</td>
-                                <td className="p-2 text-center text-slate-600 border-r border-slate-800/50">0</td>
-                                <td className="p-2 text-center text-slate-600 border-r border-slate-800/50">0</td>
-                                <td className="p-2 text-center text-slate-600 border-r border-slate-800/50">0</td>
-                                <td className="p-2 text-center text-slate-600 border-r border-slate-800/50">0</td>
-                                <td className="p-2 text-center text-slate-600 border-r border-slate-800/50">0</td>
-                                <td className="p-2 text-center text-slate-600 border-r border-slate-800/50">0</td>
-                                <td className="p-2 text-center text-slate-600 border-r border-slate-800/50">0</td>
-                                <td className="p-2 text-center font-bold text-white bg-slate-900">
-                                  {r.totalAsistencia}
-                                </td>
+                                <td className="p-3 text-slate-300 font-medium">{p.fecha}</td>
+                                <td className="p-3 text-emerald-400 font-mono font-bold">{p.entrada ? p.entrada.time : '—'}</td>
+                                <td className="p-3 text-amber-400 font-mono font-bold">{p.salida ? p.salida.time : '—'}</td>
+                                <td className="p-3 text-center font-bold text-indigo-300 font-mono">{p.horasEfectivas} hrs</td>
+                                <td className="p-3 text-slate-300 font-medium">{p.sede_nombre}</td>
                               </tr>
                             ))
+                          ) : (
+                            <tr>
+                              <td colSpan={7} className="p-8 text-center text-slate-500">
+                                No hay marcaciones registradas para auditar en este rango.
+                              </td>
+                            </tr>
                           )}
                         </tbody>
                       </table>
+                    </div>
+                  );
+                })}
+
+                {/* Visual Dashboard */}
+                {adminTab === 'dashboard' && (() => {
+                  if (dashboardLoading) {
+                    return (
+                      <div className="flex flex-col items-center justify-center p-12 text-slate-500 text-sm">
+                        <RefreshCw className="h-6 w-6 animate-spin text-indigo-400 mb-2" />
+                        Cargando métricas del dashboard...
+                      </div>
+                    );
+                  }
+                  if (!dashboardData) {
+                    return (
+                      <div className="flex flex-col items-center justify-center p-12 text-slate-500 text-sm">
+                        <AlertTriangle className="h-8 w-8 text-slate-650 mb-2" />
+                        No se cargaron métricas para este mes.
+                      </div>
+                    );
+                  }
+
+                  const { leaderboard, distribucionPuntos, tendenciaTemporal, resumenSedes } = dashboardData;
+                  
+                  // Calculate quick top metric summaries
+                  const totalHorasEquipo = tendenciaTemporal.reduce((acc, curr) => acc + curr.horasTotales, 0);
+                  const activeColabs = resumenSedes.reduce((acc, curr) => acc + (curr.count || 0), 0);
+                  const totalPuntosAcumulados = resumenSedes.reduce((acc, curr) => acc + (curr.puntos || 0), 0);
+
+                  return (
+                    <div className="flex flex-col gap-6 mt-2">
+                      {/* Mini Metric Summaries */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div className="metric-mini-card">
+                          <div className="metric-mini-value">{Math.round(totalHorasEquipo)} hrs</div>
+                          <div className="metric-mini-label">Total Horas Guardia</div>
+                        </div>
+                        <div className="metric-mini-card">
+                          <div className="metric-mini-value">{activeColabs}</div>
+                          <div className="metric-mini-label">Colaboradores Activos</div>
+                        </div>
+                        <div className="metric-mini-card">
+                          <div className="metric-mini-value">{Math.round(totalPuntosAcumulados)} pts</div>
+                          <div className="metric-mini-label">Puntos Consolidados</div>
+                        </div>
+                      </div>
+
+                      <div className="dashboard-grid">
+                        {/* Gráfico 1: Leaderboard */}
+                        <div className="chart-card">
+                          <h4 className="chart-card-title">Ranking de Horas (Leaderboard)</h4>
+                          <p className="chart-card-subtitle">Top 10 colaboradores con más horas acumuladas</p>
+                          <div className="h-[280px] w-full mt-4">
+                            {leaderboard && leaderboard.length > 0 ? (
+                              <ResponsiveContainer width="100%" height="100%">
+                                <BarChart
+                                  layout="vertical"
+                                  data={leaderboard}
+                                  margin={{ top: 5, right: 15, left: 10, bottom: 5 }}
+                                >
+                                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                                  <XAxis type="number" stroke="#64748b" fontSize={10} />
+                                  <YAxis type="category" dataKey="nombre" stroke="#64748b" fontSize={9} width={100} />
+                                  <Tooltip 
+                                    contentStyle={{ background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '8px' }}
+                                    labelStyle={{ color: '#e2e8f0', fontWeight: 'bold', fontSize: '11px' }}
+                                    itemStyle={{ color: '#818cf8', fontSize: '11px' }}
+                                  />
+                                  <Bar dataKey="horas" fill="#6366f1" radius={[0, 4, 4, 0]} />
+                                </BarChart>
+                              </ResponsiveContainer>
+                            ) : (
+                              <div className="h-full flex items-center justify-center text-slate-500 text-xs">Sin datos disponibles.</div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Gráfico 2: Distribución de Puntos */}
+                        <div className="chart-card">
+                          <h4 className="chart-card-title">Distribución por Puntos</h4>
+                          <p className="chart-card-subtitle">Clasificación mensual por rangos de desempeño</p>
+                          <div className="h-[280px] w-full mt-4 flex flex-col sm:flex-row items-center justify-center gap-4">
+                            {distribucionPuntos ? (() => {
+                              const data = [
+                                { name: 'Alto (> 600 pts)', value: distribucionPuntos.alto, color: '#10b981' },
+                                { name: 'Medio (400-600 pts)', value: distribucionPuntos.medio, color: '#3b82f6' },
+                                { name: 'Base (200-400 pts)', value: distribucionPuntos.base, color: '#f59e0b' },
+                                { name: 'Revisión (< 200 pts)', value: distribucionPuntos.revision, color: '#ef4444' }
+                              ].filter(d => d.value > 0);
+
+                              if (data.length === 0) {
+                                return <div className="text-slate-550 text-xs">Sin datos disponibles.</div>;
+                              }
+                              
+                              return (
+                                <>
+                                  <div className="w-full sm:w-[60%] h-full">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                      <PieChart>
+                                        <Pie
+                                          data={data}
+                                          cx="50%"
+                                          cy="50%"
+                                          innerRadius={55}
+                                          outerRadius={75}
+                                          paddingAngle={4}
+                                          dataKey="value"
+                                        >
+                                          {data.map((entry, index) => (
+                                            <Cell key={`cell-${index}`} fill={entry.color} />
+                                          ))}
+                                        </Pie>
+                                        <Tooltip 
+                                          contentStyle={{ background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
+                                          itemStyle={{ fontSize: '11px' }}
+                                        />
+                                      </PieChart>
+                                    </ResponsiveContainer>
+                                  </div>
+                                  <div className="flex flex-col gap-2 w-full sm:w-[40%] text-left">
+                                    {data.map((entry, idx) => (
+                                      <div key={idx} className="flex items-center gap-2">
+                                        <span className="h-3 w-3 rounded-full" style={{ backgroundColor: entry.color }}></span>
+                                        <span className="text-[10px] text-slate-300 font-semibold">{entry.name}: <strong className="text-white">{entry.value}</strong></span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </>
+                              );
+                            })() : (
+                              <div className="h-full flex items-center justify-center text-slate-500 text-xs">Cargando gráfico...</div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Gráfico 3: Tendencia */}
+                        <div className="chart-card chart-card-full">
+                          <h4 className="chart-card-title">Tendencia Temporal de Horas</h4>
+                          <p className="chart-card-subtitle">Horas efectivas diarias acumuladas en el período</p>
+                          <div className="h-[250px] w-full mt-4">
+                            {tendenciaTemporal && tendenciaTemporal.length > 0 ? (
+                              <ResponsiveContainer width="100%" height="100%">
+                                <LineChart
+                                  data={tendenciaTemporal}
+                                  margin={{ top: 10, right: 20, left: -20, bottom: 5 }}
+                                >
+                                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                                  <XAxis dataKey="dia" stroke="#64748b" fontSize={9} />
+                                  <YAxis stroke="#64748b" fontSize={9} />
+                                  <Tooltip 
+                                    contentStyle={{ background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '8px' }}
+                                    labelStyle={{ color: '#e2e8f0', fontWeight: 'bold', fontSize: '11px' }}
+                                    itemStyle={{ color: '#34d399', fontSize: '11px' }}
+                                  />
+                                  <Line type="monotone" dataKey="horasTotales" stroke="#3b82f6" strokeWidth={2} activeDot={{ r: 5 }} dot={{ r: 2 }} name="Horas" />
+                                </LineChart>
+                              </ResponsiveContainer>
+                            ) : (
+                              <div className="h-full flex items-center justify-center text-slate-500 text-xs">Sin datos disponibles.</div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Tabla 4: Resumen por Sede */}
+                        <div className="chart-card chart-card-full">
+                          <h4 className="chart-card-title">Resumen Analítico por Sede Clínica</h4>
+                          <p className="chart-card-subtitle">Métricas de control operativo y estado por local</p>
+                          <div className="admin-table-wrapper overflow-x-auto w-full border border-slate-800/80 rounded-xl bg-slate-950/40 mt-4">
+                            <table className="w-full border-collapse text-left text-xs admin-table">
+                              <thead>
+                                <tr className="bg-slate-900/80 border-b border-slate-800 text-slate-400 font-semibold text-[10px] tracking-wide uppercase">
+                                  <th className="p-3">Sede Clínica</th>
+                                  <th className="p-3 text-center">Colaboradores</th>
+                                  <th className="p-3 text-center">Horas Totales</th>
+                                  <th className="p-3 text-center">Puntos Acumulados</th>
+                                  <th className="p-3 text-center">Promedio Horas / Colaborador</th>
+                                  <th className="p-3 text-center">Estado Operativo</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-900">
+                                {resumenSedes && resumenSedes.length > 0 ? (
+                                  resumenSedes.map((s, idx) => {
+                                    let badgeClass = 'status-estable';
+                                    if (s.estado === 'Óptimo') badgeClass = 'status-optimo';
+                                    else if (s.estado === 'Bajo') badgeClass = 'status-critico';
+
+                                    return (
+                                      <tr key={idx} className="hover:bg-slate-900/40 transition-colors">
+                                        <td className="p-3 font-bold text-white">{s.sede}</td>
+                                        <td className="p-3 text-center text-slate-300 font-semibold">{s.count || 0}</td>
+                                        <td className="p-3 text-center text-slate-300 font-mono font-bold">{s.horasTotales} hrs</td>
+                                        <td className="p-3 text-center text-indigo-400 font-mono font-bold">{s.puntos} pts</td>
+                                        <td className="p-3 text-center text-slate-300 font-mono">{s.promedio} hrs/col</td>
+                                        <td className="p-3 text-center">
+                                          <span className={`status-badge ${badgeClass}`}>
+                                            {s.estado}
+                                          </span>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })
+                                ) : (
+                                  <tr>
+                                    <td colSpan={6} className="p-8 text-center text-slate-500">
+                                      Sin datos de sedes en este período.
+                                    </td>
+                                  </tr>
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   );
                 })}
