@@ -75,6 +75,12 @@ router.get('/asistencia/dashboard-metricas', asistenciaController.obtenerDashboa
 router.put('/asistencia/ajustes-reporte', asistenciaController.guardarAjustesReporte);
 router.get('/asistencia/exportar/reporte-matricial', asistenciaController.exportarReporteMatricial);
 
+// Nuevos Reportes Analíticos (Admin)
+router.get('/asistencia/reporte-anual', asistenciaController.obtenerReporteAnual);
+router.get('/asistencia/exportar/matricial-anual', asistenciaController.exportarReporteMatricialAnual);
+router.get('/asistencia/reporte-detalle-turnos', asistenciaController.obtenerReporteDetalleTurnos);
+router.get('/asistencia/exportar/detalle-turnos', asistenciaController.exportarReporteDetalleTurnos);
+
 // Autenticación de Usuarios y Admin
 router.post('/auth/login', authController.login);
 router.post('/auth/crear-usuario', authController.crearUsuario);

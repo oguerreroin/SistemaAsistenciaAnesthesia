@@ -346,7 +346,10 @@ function runMockQuery(text, params = []) {
     const end = new Date(endDate);
     const filtered = mockDb.marcaciones.filter(m => {
       const d = new Date(m.fecha_hora);
-      return d >= start && d <= end;
+      const matchDate = d >= start && d <= end;
+      const sede = mockDb.sedes.find(s => s.id === m.sede_id) || {};
+      const matchSede = !sede.nombre || !sede.nombre.includes('Alto Bellavista');
+      return matchDate && matchSede;
     });
     return {
       rows: filtered,
@@ -375,7 +378,7 @@ function runMockQuery(text, params = []) {
         sede_radio: sede.radio_permitido_metros,
         sede_id: m.sede_id
       };
-    });
+    }).filter(r => !r.sede_nombre.includes('Alto Bellavista'));
 
     if (queryStr.includes('m.fecha_hora >= CURRENT_DATE')) {
       const today = new Date();

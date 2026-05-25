@@ -256,7 +256,7 @@ exports.obtenerHistorialMarcaciones = async (req, res) => {
       FROM marcaciones m
       JOIN usuarios u ON m.usuario_id = u.id
       JOIN sedes s ON m.sede_id = s.id
-      WHERE 1=1
+      WHERE s.nombre NOT LIKE '%Alto Bellavista%'
     `;
     
     const queryParams = [];
@@ -314,7 +314,7 @@ async function obtenerDatosFiltrados(query) {
     FROM marcaciones m
     JOIN usuarios u ON m.usuario_id = u.id
     JOIN sedes s ON m.sede_id = s.id
-    WHERE 1=1
+    WHERE s.nombre NOT LIKE '%Alto Bellavista%'
   `;
   
   const queryParams = [];
@@ -691,33 +691,8 @@ function calcularReporteAnalitico(marcaciones, ajustes, usuarios, sedes, mes, an
     }
     totalAsistencia = Math.round(totalAsistencia * 100) / 100;
 
-    // Get ajustes for this user
-    const ajusteUser = ajustes.find(a => a.usuario_id === user.id) || {};
-    const asisten_ad = parseFloat(ajusteUser.asisten_ad) || 0;
-    const totalGC = Math.round((totalAsistencia + asisten_ad) * 100) / 100;
-    const totalPuntos = Math.round(totalGC * 4 * 100) / 100;
-    const reten = parseFloat(ajusteUser.reten) || 0;
-    const exclusi = parseFloat(ajusteUser.exclusi) || 0;
-    const proc_val = parseFloat(ajusteUser.proc_val) || 0;
-    const rne = parseFloat(ajusteUser.rne) || 0;
-    const encargatu = parseFloat(ajusteUser.encargatu) || 0;
-    const actividades = parseFloat(ajusteUser.actividades) || 0;
-    const vacaciones = parseFloat(ajusteUser.vacaciones) || 0;
-    const totalFinal = Math.round((totalPuntos + encargatu - reten + exclusi) * 100) / 100;
-
     // Accumulate column totals
     totalesColumnas.totalAsi += totalAsistencia;
-    totalesColumnas.asisten_ad += asisten_ad;
-    totalesColumnas.totalGC += totalGC;
-    totalesColumnas.totalPuntos += totalPuntos;
-    totalesColumnas.reten += reten;
-    totalesColumnas.exclusi += exclusi;
-    totalesColumnas.proc_val += proc_val;
-    totalesColumnas.rne += rne;
-    totalesColumnas.encargatu += encargatu;
-    totalesColumnas.actividades += actividades;
-    totalesColumnas.vacaciones += vacaciones;
-    totalesColumnas.totalFinal += totalFinal;
 
     return {
       id: user.id,
@@ -726,18 +701,7 @@ function calcularReporteAnalitico(marcaciones, ajustes, usuarios, sedes, mes, an
       rol: user.rol,
       sede_nombre: sede.nombre || '',
       diasHoras,
-      totalAsistencia,
-      asisten_ad,
-      totalGC,
-      totalPuntos,
-      reten,
-      exclusi,
-      proc_val,
-      rne,
-      encargatu,
-      actividades,
-      vacaciones,
-      totalFinal
+      totalAsistencia
     };
   });
 
@@ -765,12 +729,13 @@ function calcularDashboardMetricas(reporteAnalitico, marcaciones, sedes, mes, an
     .slice(0, 10)
     .map(u => ({ nombre: u.nombre, horas: u.totalAsistencia }));
 
-  // Distribución de puntos
+  // Distribución de puntos (Fórmula crítica: Horas / 6)
   let alto = 0, medio = 0, base = 0, revision = 0;
   usuarios.forEach(u => {
-    if (u.totalPuntos > 600) alto++;
-    else if (u.totalPuntos >= 400) medio++;
-    else if (u.totalPuntos >= 200) base++;
+    const totalPuntos = u.totalAsistencia / 6;
+    if (totalPuntos > 25) alto++;
+    else if (totalPuntos >= 15) medio++;
+    else if (totalPuntos >= 5) base++;
     else revision++;
   });
   const distribucionPuntos = { alto, medio, base, revision };
@@ -831,15 +796,98 @@ function calcularDashboardMetricas(reporteAnalitico, marcaciones, sedes, mes, an
     }
   });
 
-  const resumenSedes = Object.values(sedeMap).map(s => {
-    s.horasTotales = Math.round(s.horasTotales * 100) / 100;
-    s.puntos = Math.round(s.horasTotales * 4 * 100) / 100;
-    s.promedio = s.count > 0 ? Math.round((s.horasTotales / s.count) * 100) / 100 : 0;
-    s.estado = s.promedio >= 8 ? 'Óptimo' : s.promedio >= 5 ? 'Aceptable' : 'Bajo';
-    return s;
+  const resumenSedes = Object.values(sedeMap)
+    .filter(s => !s.sede.includes('Alto Bellavista'))
+    .map(s => {
+      s.horasTotales = Math.round(s.horasTotales * 100) / 100;
+      s.puntos = Math.round((s.horasTotales / 6) * 100) / 100;
+      s.promedio = s.count > 0 ? Math.round((s.horasTotales / s.count) * 100) / 100 : 0;
+      s.estado = s.promedio >= 8 ? 'Óptimo' : s.promedio >= 5 ? 'Aceptable' : 'Bajo';
+      return s;
+    });
+
+  // 1. Ratio de Alertas "Fuera de Rango" (Gráfico de líneas)
+  const ratioFueraRango = [];
+  for (let d = 1; d <= diasEnPeriodo; d++) {
+    const marcsDia = marcaciones.filter(m => {
+      const date = new Date(m.fecha_hora);
+      return date.getDate() === d && date.getMonth() + 1 === mes && date.getFullYear() === anio;
+    });
+
+    const total = marcsDia.length;
+    if (total > 0) {
+      let fueraCount = 0;
+      marcsDia.forEach(m => {
+        const Sede = sedes.find(s => s.id === m.sede_id) || {};
+        const radio = parseInt(Sede.radio_permitido_metros || 200, 10);
+        if (parseFloat(m.distancia_metros) > radio) {
+          fueraCount++;
+        }
+      });
+      const ratio = Math.round((fueraCount / total) * 10000) / 100;
+      ratioFueraRango.push({ dia: d, ratio, total, fueraCount });
+    } else {
+      ratioFueraRango.push({ dia: d, ratio: 0, total: 0, fueraCount: 0 });
+    }
+  }
+
+  // 2. Densidad de Turnos Nocturnos vs. Diurnos (Columnas apiladas)
+  const turnosDiarios = {};
+  for (let d = 1; d <= diasEnPeriodo; d++) {
+    turnosDiarios[d] = { diurnos: 0, nocturnos: 0 };
+  }
+
+  const porUsuarioP = {};
+  marcaciones.forEach(m => {
+    const uid = m.usuario_id;
+    if (!porUsuarioP[uid]) porUsuarioP[uid] = [];
+    porUsuarioP[uid].push(m);
   });
 
-  return { leaderboard, distribucionPuntos, tendenciaTemporal, resumenSedes };
+  Object.values(porUsuarioP).forEach(marks => {
+    const marcasOrdenadas = marks.sort((a, b) => new Date(a.fecha_hora) - new Date(b.fecha_hora));
+    let i = 0;
+    while (i < marcasOrdenadas.length) {
+      const current = marcasOrdenadas[i];
+      if (current.tipo_marcado === 'ENTRADA') {
+        if (i + 1 < marcasOrdenadas.length) {
+          const next = marcasOrdenadas[i + 1];
+          if (next.tipo_marcado === 'SALIDA') {
+            const dateEntrada = new Date(current.fecha_hora);
+            if (dateEntrada.getMonth() + 1 === mes && dateEntrada.getFullYear() === anio) {
+              const dia = dateEntrada.getDate();
+              const hh = dateEntrada.getHours();
+              const crossesMidnight = new Date(next.fecha_hora).getDate() !== dateEntrada.getDate();
+              
+              const isNocturno = hh >= 18 || crossesMidnight;
+              
+              if (turnosDiarios[dia]) {
+                if (isNocturno) {
+                  turnosDiarios[dia].nocturnos++;
+                } else {
+                  turnosDiarios[dia].diurnos++;
+                }
+              }
+            }
+            i += 2;
+            continue;
+          }
+        }
+      }
+      i++;
+    }
+  });
+
+  const densidadTurnos = [];
+  for (let d = 1; d <= diasEnPeriodo; d++) {
+    densidadTurnos.push({
+      dia: d,
+      diurnos: turnosDiarios[d].diurnos,
+      nocturnos: turnosDiarios[d].nocturnos
+    });
+  }
+
+  return { leaderboard, distribucionPuntos, tendenciaTemporal, resumenSedes, ratioFueraRango, densidadTurnos };
 }
 
 // ==========================================
@@ -860,7 +908,9 @@ exports.obtenerReporteAnalitico = async (req, res) => {
 
     const marcsRes = await db.query(
       `SELECT m.id, m.usuario_id, m.sede_id, m.tipo_marcado, m.fecha_hora, m.latitud_marcado, m.longitud_marcado, m.foto_path, m.distancia_metros
-       FROM marcaciones m WHERE m.fecha_hora >= $1 AND m.fecha_hora <= $2`,
+       FROM marcaciones m 
+       JOIN sedes s ON m.sede_id = s.id
+       WHERE m.fecha_hora >= $1 AND m.fecha_hora <= $2 AND s.nombre NOT LIKE '%Alto Bellavista%'`,
       [startDate, endDate]
     );
     const marcaciones = marcsRes.rows;
@@ -898,7 +948,9 @@ exports.obtenerDashboardMetricas = async (req, res) => {
 
     const marcsRes = await db.query(
       `SELECT m.id, m.usuario_id, m.sede_id, m.tipo_marcado, m.fecha_hora, m.latitud_marcado, m.longitud_marcado, m.foto_path, m.distancia_metros
-       FROM marcaciones m WHERE m.fecha_hora >= $1 AND m.fecha_hora <= $2`,
+       FROM marcaciones m 
+       JOIN sedes s ON m.sede_id = s.id
+       WHERE m.fecha_hora >= $1 AND m.fecha_hora <= $2 AND s.nombre NOT LIKE '%Alto Bellavista%'`,
       [startDate, endDate]
     );
     const marcaciones = marcsRes.rows;
@@ -985,7 +1037,9 @@ exports.exportarReporteMatricial = async (req, res) => {
 
     const marcsRes = await db.query(
       `SELECT m.id, m.usuario_id, m.sede_id, m.tipo_marcado, m.fecha_hora
-       FROM marcaciones m WHERE m.fecha_hora >= $1 AND m.fecha_hora <= $2`,
+       FROM marcaciones m 
+       JOIN sedes s ON m.sede_id = s.id
+       WHERE m.fecha_hora >= $1 AND m.fecha_hora <= $2 AND s.nombre NOT LIKE '%Alto Bellavista%'`,
       [startDate, endDate]
     );
     const marcaciones = marcsRes.rows;
@@ -1014,25 +1068,12 @@ exports.exportarReporteMatricial = async (req, res) => {
     titleRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '1E3A8A' } };
     titleRow.height = 30;
     titleRow.alignment = { vertical: 'middle', horizontal: 'center' };
-    worksheet.mergeCells(1, 1, 1, diasEnPeriodo + 14);
+    worksheet.mergeCells(1, 1, 1, diasEnPeriodo + 2);
 
     // Build column headers with formulas explicitly labeled
     const headers = ['ASISTENCIA'];
     for (let d = 1; d <= diasEnPeriodo; d++) { headers.push(d.toString()); }
-    headers.push(
-      'TOTAL ASI (Suma)', 
-      'ASISTEN_AD', 
-      'TOTAL GC (ASI + AD)', 
-      'Puntos Base (GC * 4)', 
-      'RETEN', 
-      'EXCLUSI', 
-      'PROC', 
-      'RNE', 
-      'ENCARGATU', 
-      'ACTIVIDADES', 
-      'VACACIONES', 
-      'Total Final (Puntos + Encargatu - Reten + Exclusi)'
-    );
+    headers.push('TOTAL ASI (Suma)');
 
     const headerRow = worksheet.addRow(headers);
     headerRow.font = { name: 'Segoe UI', size: 9, bold: true, color: { argb: 'FFFFFF' } };
@@ -1043,7 +1084,7 @@ exports.exportarReporteMatricial = async (req, res) => {
     // Set column widths
     worksheet.getColumn(1).width = 28; // Nombre
     for (let d = 1; d <= diasEnPeriodo; d++) { worksheet.getColumn(d + 1).width = 6; }
-    for (let c = diasEnPeriodo + 2; c <= diasEnPeriodo + 13; c++) { worksheet.getColumn(c).width = 16; }
+    worksheet.getColumn(diasEnPeriodo + 2).width = 18; // Total
 
     // Data rows
     dataUsuarios.forEach(user => {
@@ -1051,7 +1092,7 @@ exports.exportarReporteMatricial = async (req, res) => {
       for (let d = 1; d <= diasEnPeriodo; d++) {
         rowData.push(user.diasHoras[d] || 0);
       }
-      rowData.push(user.totalAsistencia, user.asisten_ad, user.totalGC, user.totalPuntos, user.reten, user.exclusi, user.proc_val, user.rne, user.encargatu, user.actividades, user.vacaciones, user.totalFinal);
+      rowData.push(user.totalAsistencia);
 
       const dataRow = worksheet.addRow(rowData);
       dataRow.font = { name: 'Segoe UI', size: 9 };
@@ -1088,12 +1129,7 @@ exports.exportarReporteMatricial = async (req, res) => {
     for (let d = 1; d <= diasEnPeriodo; d++) {
       footerData.push(totalesColumnas[d] || 0);
     }
-    footerData.push(
-      totalesColumnas.totalAsi, totalesColumnas.asisten_ad, totalesColumnas.totalGC,
-      totalesColumnas.totalPuntos, totalesColumnas.reten, totalesColumnas.exclusi,
-      totalesColumnas.proc_val, totalesColumnas.rne, totalesColumnas.encargatu,
-      totalesColumnas.actividades, totalesColumnas.vacaciones, totalesColumnas.totalFinal
-    );
+    footerData.push(totalesColumnas.totalAsi);
 
     const footerRow = worksheet.addRow(footerData);
     footerRow.font = { name: 'Segoe UI', size: 9, bold: true, color: { argb: 'FFFFFF' } };
@@ -1103,13 +1139,463 @@ exports.exportarReporteMatricial = async (req, res) => {
     footerRow.getCell(1).alignment = { horizontal: 'left' };
 
     // Send response
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename=reporte_matricial_${nombreMes.toLowerCase()}_${anio}.xlsx`);
-
     await workbook.xlsx.write(res);
     res.end();
   } catch (error) {
     console.error('Error al exportar reporte matricial:', error);
     return res.status(500).json({ error: 'Error al generar el reporte matricial en Excel.' });
+  }
+};
+
+// ==========================================
+// NUEVOS REPORTES (REPORTE ANUAL & DETALLE TURNOS)
+// ==========================================
+
+// Helper: Calcular Reporte Anual
+function calcularReporteAnualInterno(marcaciones, usuarios, anio, sedeIdFilter) {
+  const marcsFiltradas = marcaciones.filter(m => {
+    return sedeIdFilter ? (m.sede_id === sedeIdFilter) : true;
+  });
+
+  const porUsuario = {};
+  marcsFiltradas.forEach(m => {
+    const uid = m.usuario_id;
+    if (!porUsuario[uid]) porUsuario[uid] = [];
+    porUsuario[uid].push(m);
+  });
+
+  return usuarios.map(user => {
+    const marcasUser = porUsuario[user.id] || [];
+    const marcasOrdenadas = marcasUser.sort((a, b) => new Date(a.fecha_hora) - new Date(b.fecha_hora));
+
+    const turnos = [];
+    let i = 0;
+    while (i < marcasOrdenadas.length) {
+      const current = marcasOrdenadas[i];
+      if (current.tipo_marcado === 'ENTRADA') {
+        if (i + 1 < marcasOrdenadas.length) {
+          const next = marcasOrdenadas[i + 1];
+          if (next.tipo_marcado === 'SALIDA') {
+            const diff = (new Date(next.fecha_hora) - new Date(current.fecha_hora)) / 3600000;
+            turnos.push({
+              entrada: current,
+              salida: next,
+              horas: diff > 0 ? diff : 0
+            });
+            i += 2;
+            continue;
+          }
+        }
+      }
+      i++;
+    }
+
+    const meses = {};
+    for (let m = 1; m <= 12; m++) {
+      meses[m] = 0;
+    }
+    let totalAnual = 0;
+
+    turnos.forEach(t => {
+      const dateEntrada = new Date(t.entrada.fecha_hora);
+      if (dateEntrada.getFullYear() === anio) {
+        const mes = dateEntrada.getMonth() + 1;
+        meses[mes] = (meses[mes] || 0) + t.horas;
+        totalAnual += t.horas;
+      }
+    });
+
+    for (let m = 1; m <= 12; m++) {
+      meses[m] = Math.round(meses[m] * 100) / 100;
+    }
+    totalAnual = Math.round(totalAnual * 100) / 100;
+
+    return {
+      id: user.id,
+      nombre: user.nombre,
+      dni: user.dni,
+      rol: user.rol,
+      meses,
+      totalAnual
+    };
+  });
+}
+
+// Helper: Calcular Detalle Turnos
+function calcularDetalleTurnosInterno(marcaciones, usuarios, sedes, mes, anio, SedeIdFilter) {
+  const porUsuario = {};
+  marcaciones.forEach(m => {
+    const uid = m.usuario_id;
+    if (!porUsuario[uid]) porUsuario[uid] = [];
+    porUsuario[uid].push(m);
+  });
+
+  const result = [];
+
+  usuarios.forEach(user => {
+    const marcasUser = porUsuario[user.id] || [];
+    const marcasOrdenadas = marcasUser.sort((a, b) => new Date(a.fecha_hora) - new Date(b.fecha_hora));
+
+    let i = 0;
+    while (i < marcasOrdenadas.length) {
+      const current = marcasOrdenadas[i];
+      if (current.tipo_marcado === 'ENTRADA') {
+        if (i + 1 < marcasOrdenadas.length) {
+          const next = marcasOrdenadas[i + 1];
+          if (next.tipo_marcado === 'SALIDA') {
+            const dateEntrada = new Date(current.fecha_hora);
+            const dateSalida = new Date(next.fecha_hora);
+
+            const isTargetPeriod = (dateEntrada.getMonth() + 1 === mes) && (dateEntrada.getFullYear() === anio);
+
+            if (isTargetPeriod) {
+              const sede = sedes.find(s => s.id === current.sede_id) || {};
+              const matchSedeName = !sede.nombre || !sede.nombre.includes('Alto Bellavista');
+              const matchSedeFilter = SedeIdFilter ? (current.sede_id === SedeIdFilter) : true;
+
+              if (matchSedeName && matchSedeFilter) {
+                const diffMs = dateSalida - dateEntrada;
+                const decimalHrs = diffMs > 0 ? (diffMs / 3600000) : 0;
+                
+                const totalSeconds = Math.max(0, Math.floor(diffMs / 1000));
+                const hours = Math.floor(totalSeconds / 3600);
+                const minutes = Math.floor((totalSeconds % 3600) / 60);
+                const seconds = totalSeconds % 60;
+                
+                const formatTime = (val) => String(val).padStart(2, '0');
+                const durationString = `${formatTime(hours)}:${formatTime(minutes)}:${formatTime(seconds)}`;
+
+                const puntos = Math.round((decimalHrs / 6) * 100) / 100;
+
+                result.push({
+                  fecha: dateEntrada.toISOString().split('T')[0],
+                  anestesiologo: user.nombre,
+                  sede: sede.nombre || 'Desconocida',
+                  ingreso: dateEntrada.toLocaleTimeString('es-PE', { hour12: false }),
+                  salida: dateSalida.toLocaleTimeString('es-PE', { hour12: false }),
+                  horas_trabajadas: durationString,
+                  puntos: puntos,
+                  decimal_horas: Math.round(decimalHrs * 100) / 100
+                });
+              }
+            }
+            i += 2;
+            continue;
+          }
+        }
+      }
+      i++;
+    }
+  });
+
+  return result.sort((a, b) => a.fecha.localeCompare(b.fecha) || a.anestesiologo.localeCompare(b.anestesiologo));
+}
+
+// 1. GET /api/asistencia/reporte-anual
+exports.obtenerReporteAnual = async (req, res) => {
+  try {
+    const now = new Date();
+    const anio = parseInt(req.query.anio, 10) || now.getFullYear();
+    const sedeIdFilter = req.query.sede_id ? parseInt(req.query.sede_id, 10) : null;
+
+    const startDate = new Date(anio, 0, 1, 0, 0, 0, 0);
+    const endDate = new Date(anio, 11, 31, 23, 59, 59, 999);
+    endDate.setDate(endDate.getDate() + 1);
+
+    const marcsRes = await db.query(
+      `SELECT m.id, m.usuario_id, m.sede_id, m.tipo_marcado, m.fecha_hora
+       FROM marcaciones m 
+       JOIN sedes s ON m.sede_id = s.id
+       WHERE m.fecha_hora >= $1 AND m.fecha_hora <= $2 AND s.nombre NOT LIKE '%Alto Bellavista%'`,
+      [startDate, endDate]
+    );
+    const marcaciones = marcsRes.rows;
+
+    const usersRes = await db.query('SELECT id, dni, nombre, rol, status FROM usuarios ORDER BY nombre ASC');
+    const usuarios = usersRes.rows;
+
+    const reporte = calcularReporteAnualInterno(marcaciones, usuarios, anio, sedeIdFilter);
+    return res.json(reporte);
+  } catch (error) {
+    console.error('Error al obtener reporte anual:', error);
+    return res.status(500).json({ error: 'Error al generar el reporte anual.' });
+  }
+};
+
+// 2. GET /api/asistencia/exportar/matricial-anual
+exports.exportarReporteMatricialAnual = async (req, res) => {
+  try {
+    const now = new Date();
+    const anio = parseInt(req.query.anio, 10) || now.getFullYear();
+    const sedeIdFilter = req.query.sede_id ? parseInt(req.query.sede_id, 10) : null;
+
+    const startDate = new Date(anio, 0, 1, 0, 0, 0, 0);
+    const endDate = new Date(anio, 11, 31, 23, 59, 59, 999);
+    endDate.setDate(endDate.getDate() + 1);
+
+    const marcsRes = await db.query(
+      `SELECT m.id, m.usuario_id, m.sede_id, m.tipo_marcado, m.fecha_hora
+       FROM marcaciones m 
+       JOIN sedes s ON m.sede_id = s.id
+       WHERE m.fecha_hora >= $1 AND m.fecha_hora <= $2 AND s.nombre NOT LIKE '%Alto Bellavista%'`,
+      [startDate, endDate]
+    );
+    const marcaciones = marcsRes.rows;
+
+    const usersRes = await db.query('SELECT id, dni, nombre, rol, status FROM usuarios ORDER BY nombre ASC');
+    const usuarios = usersRes.rows;
+
+    const dataUsuarios = calcularReporteAnualInterno(marcaciones, usuarios, anio, sedeIdFilter);
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet(`Consolidado Anual ${anio}`);
+
+    const titleRow = worksheet.addRow([`REPORTE CONSOLIDADO ANUAL - AÑO ${anio}`]);
+    titleRow.font = { name: 'Segoe UI', size: 14, bold: true, color: { argb: 'FFFFFF' } };
+    titleRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '1E3A8A' } };
+    titleRow.height = 30;
+    titleRow.alignment = { vertical: 'middle', horizontal: 'center' };
+    worksheet.mergeCells(1, 1, 1, 14);
+
+    const headers = [
+      'COLABORADOR',
+      'ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
+      'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE',
+      'TOTAL ANUAL'
+    ];
+    const headerRow = worksheet.addRow(headers);
+    headerRow.font = { name: 'Segoe UI', size: 9, bold: true, color: { argb: 'FFFFFF' } };
+    headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '1E3A8A' } };
+    headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+    headerRow.height = 22;
+
+    worksheet.getColumn(1).width = 28;
+    for (let col = 2; col <= 13; col++) {
+      worksheet.getColumn(col).width = 12;
+    }
+    worksheet.getColumn(14).width = 18;
+
+    const totalMeses = {};
+    for (let m = 1; m <= 12; m++) { totalMeses[m] = 0; }
+    let granTotal = 0;
+
+    dataUsuarios.forEach(user => {
+      const rowData = [user.nombre];
+      for (let m = 1; m <= 12; m++) {
+        const val = user.meses[m] || 0;
+        rowData.push(val);
+        totalMeses[m] += val;
+      }
+      rowData.push(user.totalAnual);
+      granTotal += user.totalAnual;
+
+      const dataRow = worksheet.addRow(rowData);
+      dataRow.font = { name: 'Segoe UI', size: 9 };
+      dataRow.height = 18;
+      dataRow.alignment = { vertical: 'middle', horizontal: 'center' };
+      dataRow.getCell(1).alignment = { horizontal: 'left' };
+
+      dataRow.eachCell(cell => {
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'E2E8F0' } },
+          bottom: { style: 'thin', color: { argb: 'E2E8F0' } },
+          left: { style: 'thin', color: { argb: 'E2E8F0' } },
+          right: { style: 'thin', color: { argb: 'E2E8F0' } }
+        };
+      });
+    });
+
+    const footerData = ['TOTALES'];
+    for (let m = 1; m <= 12; m++) {
+      footerData.push(Math.round(totalMeses[m] * 100) / 100);
+    }
+    footerData.push(Math.round(granTotal * 100) / 100);
+
+    const footerRow = worksheet.addRow(footerData);
+    footerRow.font = { name: 'Segoe UI', size: 9, bold: true, color: { argb: 'FFFFFF' } };
+    footerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '3B82F6' } };
+    footerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+    footerRow.height = 22;
+    footerRow.getCell(1).alignment = { horizontal: 'left' };
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=reporte_anual_${anio}.xlsx`);
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (error) {
+    console.error('Error al exportar reporte anual:', error);
+    return res.status(500).json({ error: 'Error al generar el reporte anual en Excel.' });
+  }
+};
+
+// 3. GET /api/asistencia/reporte-detalle-turnos
+exports.obtenerReporteDetalleTurnos = async (req, res) => {
+  try {
+    const now = new Date();
+    const mes = parseInt(req.query.mes, 10) || (now.getMonth() + 1);
+    const anio = parseInt(req.query.anio, 10) || now.getFullYear();
+    const sedeIdFilter = req.query.sede_id ? parseInt(req.query.sede_id, 10) : null;
+
+    const startDate = new Date(anio, mes - 1, 1);
+    const endDate = new Date(anio, mes, 1, 23, 59, 59, 999);
+    endDate.setDate(endDate.getDate() + 1);
+
+    const marcsRes = await db.query(
+      `SELECT m.id, m.usuario_id, m.sede_id, m.tipo_marcado, m.fecha_hora
+       FROM marcaciones m 
+       JOIN sedes s ON m.sede_id = s.id
+       WHERE m.fecha_hora >= $1 AND m.fecha_hora <= $2 AND s.nombre NOT LIKE '%Alto Bellavista%'`,
+      [startDate, endDate]
+    );
+    const marcaciones = marcsRes.rows;
+
+    const usersRes = await db.query('SELECT id, dni, nombre, rol, status FROM usuarios ORDER BY nombre ASC');
+    const usuarios = usersRes.rows;
+
+    const sedesRes = await db.query('SELECT id, nombre, latitud, longitud, radio_permitido_metros FROM sedes ORDER BY nombre ASC');
+    const sedes = sedesRes.rows;
+
+    const turnosDetallados = calcularDetalleTurnosInterno(marcaciones, usuarios, sedes, mes, anio, sedeIdFilter);
+    return res.json(turnosDetallados);
+  } catch (error) {
+    console.error('Error al obtener detalle de turnos:', error);
+    return res.status(500).json({ error: 'Error al generar el reporte de detalle de turnos.' });
+  }
+};
+
+// 4. GET /api/asistencia/exportar/detalle-turnos
+exports.exportarReporteDetalleTurnos = async (req, res) => {
+  try {
+    const now = new Date();
+    const mes = parseInt(req.query.mes, 10) || (now.getMonth() + 1);
+    const anio = parseInt(req.query.anio, 10) || now.getFullYear();
+    const sedeIdFilter = req.query.sede_id ? parseInt(req.query.sede_id, 10) : null;
+
+    const startDate = new Date(anio, mes - 1, 1);
+    const endDate = new Date(anio, mes, 1, 23, 59, 59, 999);
+    endDate.setDate(endDate.getDate() + 1);
+
+    const marcsRes = await db.query(
+      `SELECT m.id, m.usuario_id, m.sede_id, m.tipo_marcado, m.fecha_hora
+       FROM marcaciones m 
+       JOIN sedes s ON m.sede_id = s.id
+       WHERE m.fecha_hora >= $1 AND m.fecha_hora <= $2 AND s.nombre NOT LIKE '%Alto Bellavista%'`,
+      [startDate, endDate]
+    );
+    const marcaciones = marcsRes.rows;
+
+    const usersRes = await db.query('SELECT id, dni, nombre, rol, status FROM usuarios ORDER BY nombre ASC');
+    const usuarios = usersRes.rows;
+
+    const sedesRes = await db.query('SELECT id, nombre, latitud, longitud, radio_permitido_metros FROM sedes ORDER BY nombre ASC');
+    const sedes = sedesRes.rows;
+
+    const turnosDetallados = calcularDetalleTurnosInterno(marcaciones, usuarios, sedes, mes, anio, sedeIdFilter);
+
+    const meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+    const nombreMes = meses[mes - 1];
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet(`Detalle Turnos ${nombreMes}`);
+
+    const titleRow = worksheet.addRow([`REPORTE DETALLADO POR TURNO - ${nombreMes.toUpperCase()} ${anio}`]);
+    titleRow.font = { name: 'Segoe UI', size: 14, bold: true, color: { argb: 'FFFFFF' } };
+    titleRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '1E3A8A' } };
+    titleRow.height = 30;
+    titleRow.alignment = { vertical: 'middle', horizontal: 'center' };
+    worksheet.mergeCells(1, 1, 1, 7);
+
+    const headers = [
+      'FECHA',
+      'ANESTESIÓLOGO',
+      'SEDE',
+      'INGRESO',
+      'SALIDA',
+      'HORAS TRABAJADAS',
+      'PUNTOS (Horas/6)'
+    ];
+    const headerRow = worksheet.addRow(headers);
+    headerRow.font = { name: 'Segoe UI', size: 9, bold: true, color: { argb: 'FFFFFF' } };
+    headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '1E3A8A' } };
+    headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+    headerRow.height = 22;
+
+    worksheet.getColumn(1).width = 15;
+    worksheet.getColumn(2).width = 28;
+    worksheet.getColumn(3).width = 22;
+    worksheet.getColumn(4).width = 15;
+    worksheet.getColumn(5).width = 15;
+    worksheet.getColumn(6).width = 20;
+    worksheet.getColumn(7).width = 20;
+
+    let totalHorasDecimales = 0;
+    let totalPuntos = 0;
+
+    turnosDetallados.forEach(turno => {
+      totalHorasDecimales += turno.decimal_horas;
+      totalPuntos += turno.puntos;
+
+      const rowData = [
+        turno.fecha,
+        turno.anestesiologo,
+        turno.sede,
+        turno.ingreso,
+        turno.salida,
+        turno.horas_trabajadas,
+        turno.puntos
+      ];
+
+      const dataRow = worksheet.addRow(rowData);
+      dataRow.font = { name: 'Segoe UI', size: 9 };
+      dataRow.height = 18;
+      dataRow.alignment = { vertical: 'middle', horizontal: 'center' };
+      dataRow.getCell(2).alignment = { horizontal: 'left' };
+      dataRow.getCell(3).alignment = { horizontal: 'left' };
+
+      dataRow.eachCell(cell => {
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'E2E8F0' } },
+          bottom: { style: 'thin', color: { argb: 'E2E8F0' } },
+          left: { style: 'thin', color: { argb: 'E2E8F0' } },
+          right: { style: 'thin', color: { argb: 'E2E8F0' } }
+        };
+      });
+    });
+
+    const formatTime = (val) => String(val).padStart(2, '0');
+    const totalSeconds = Math.max(0, Math.floor(totalHorasDecimales * 3600));
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    const totalHorasString = `${formatTime(hours)}:${formatTime(minutes)}:${formatTime(seconds)}`;
+
+    const footerData = [
+      'TOTALES',
+      '',
+      '',
+      '',
+      '',
+      totalHorasString,
+      Math.round(totalPuntos * 100) / 100
+    ];
+
+    const footerRow = worksheet.addRow(footerData);
+    footerRow.font = { name: 'Segoe UI', size: 9, bold: true, color: { argb: 'FFFFFF' } };
+    footerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '3B82F6' } };
+    footerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+    footerRow.height = 22;
+    footerRow.getCell(1).alignment = { horizontal: 'left' };
+
+    worksheet.mergeCells(footerRow.number, 1, footerRow.number, 5);
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=detalle_turnos_${nombreMes.toLowerCase()}_${anio}.xlsx`);
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (error) {
+    console.error('Error al exportar detalle de turnos:', error);
+    return res.status(500).json({ error: 'Error al generar el reporte detallado en Excel.' });
   }
 };
