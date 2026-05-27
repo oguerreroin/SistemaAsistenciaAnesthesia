@@ -320,7 +320,9 @@ function runMockQuery(text, params = []) {
 
   // 11. SELECT id, nombre, latitud, longitud, radio_permitido_metros FROM sedes ORDER BY nombre ASC
   if (queryStr.includes('FROM sedes') && queryStr.includes('ORDER BY nombre')) {
-    const sorted = [...mockDb.sedes].sort((a, b) => a.nombre.localeCompare(b.nombre));
+    const sorted = [...mockDb.sedes]
+      .filter(s => !s.nombre.includes('Alto Bellavista'))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre));
     return {
       rows: sorted,
       rowCount: sorted.length

@@ -147,6 +147,15 @@ exports.marcarAsistencia = async (req, res) => {
 
     await client.query('COMMIT');
 
+    let horasTrabajadas = null;
+    if (nuevoTipoMarcado === 'SALIDA' && ultimaMarcacion) {
+      const dateEntrada = new Date(ultimaMarcacion.fecha_hora);
+      const dateSalida = new Date(registroInsertado.fecha_hora);
+      const diffMs = dateSalida - dateEntrada;
+      const decimalHrs = diffMs / 3600000;
+      horasTrabajadas = Math.round(decimalHrs * 100) / 100;
+    }
+
     return res.status(201).json({
       success: true,
       message: `¡Registro de ${nuevoTipoMarcado} Exitoso!`,
@@ -159,7 +168,8 @@ exports.marcarAsistencia = async (req, res) => {
         fecha_hora: registroInsertado.fecha_hora,
         distancia_metros: Math.round(distanciaMetros * 100) / 100,
         fuera_de_rango: fueraDeRango,
-        radio_permitido: sede.radio_permitido_metros
+        radio_permitido: sede.radio_permitido_metros,
+        horas_trabajadas: horasTrabajadas
       }
     });
 
@@ -188,7 +198,7 @@ exports.marcarAsistencia = async (req, res) => {
 exports.obtenerSedes = async (req, res) => {
   try {
     const sedesRes = await db.query(
-      'SELECT id, nombre, latitud, longitud, radio_permitido_metros FROM sedes ORDER BY nombre ASC'
+      "SELECT id, nombre, latitud, longitud, radio_permitido_metros FROM sedes WHERE nombre NOT ILIKE '%Alto Bellavista%' ORDER BY nombre ASC"
     );
     return res.json(sedesRes.rows);
   } catch (error) {
@@ -1270,7 +1280,6 @@ function calcularDetalleTurnosInterno(marcaciones, usuarios, sedes, mes, anio, S
                 result.push({
                   fecha: dateEntrada.toISOString().split('T')[0],
                   anestesiologo: user.nombre,
-                  sede: sede.nombre || 'Desconocida',
                   ingreso: dateEntrada.toLocaleTimeString('es-PE', { hour12: false }),
                   salida: dateSalida.toLocaleTimeString('es-PE', { hour12: false }),
                   horas_trabajadas: durationString,
@@ -1504,12 +1513,11 @@ exports.exportarReporteDetalleTurnos = async (req, res) => {
     titleRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '1E3A8A' } };
     titleRow.height = 30;
     titleRow.alignment = { vertical: 'middle', horizontal: 'center' };
-    worksheet.mergeCells(1, 1, 1, 7);
+    worksheet.mergeCells(1, 1, 1, 6);
 
     const headers = [
       'FECHA',
       'ANESTESIÓLOGO',
-      'SEDE',
       'INGRESO',
       'SALIDA',
       'HORAS TRABAJADAS',
@@ -1523,11 +1531,10 @@ exports.exportarReporteDetalleTurnos = async (req, res) => {
 
     worksheet.getColumn(1).width = 15;
     worksheet.getColumn(2).width = 28;
-    worksheet.getColumn(3).width = 22;
+    worksheet.getColumn(3).width = 15;
     worksheet.getColumn(4).width = 15;
-    worksheet.getColumn(5).width = 15;
+    worksheet.getColumn(5).width = 20;
     worksheet.getColumn(6).width = 20;
-    worksheet.getColumn(7).width = 20;
 
     let totalHorasDecimales = 0;
     let totalPuntos = 0;
@@ -1539,7 +1546,6 @@ exports.exportarReporteDetalleTurnos = async (req, res) => {
       const rowData = [
         turno.fecha,
         turno.anestesiologo,
-        turno.sede,
         turno.ingreso,
         turno.salida,
         turno.horas_trabajadas,
@@ -1551,7 +1557,6 @@ exports.exportarReporteDetalleTurnos = async (req, res) => {
       dataRow.height = 18;
       dataRow.alignment = { vertical: 'middle', horizontal: 'center' };
       dataRow.getCell(2).alignment = { horizontal: 'left' };
-      dataRow.getCell(3).alignment = { horizontal: 'left' };
 
       dataRow.eachCell(cell => {
         cell.border = {
@@ -1575,7 +1580,6 @@ exports.exportarReporteDetalleTurnos = async (req, res) => {
       '',
       '',
       '',
-      '',
       totalHorasString,
       Math.round(totalPuntos * 100) / 100
     ];
@@ -1587,7 +1591,7 @@ exports.exportarReporteDetalleTurnos = async (req, res) => {
     footerRow.height = 22;
     footerRow.getCell(1).alignment = { horizontal: 'left' };
 
-    worksheet.mergeCells(footerRow.number, 1, footerRow.number, 5);
+    worksheet.mergeCells(footerRow.number, 1, footerRow.number, 4);
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename=detalle_turnos_${nombreMes.toLowerCase()}_${anio}.xlsx`);

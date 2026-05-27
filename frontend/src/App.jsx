@@ -179,17 +179,17 @@ function App() {
     return () => detenerCamara();
   }, [mostrarPantallaCaptura]);
 
-  // --- CONTROLES DE LA PANTALLA 4 (AUTO-LOGOUT EN 10 SEGUNDOS) ---
+  // --- CONTROLES DE LA PANTALLA 4 (AUTO-LOGOUT EN 20 SEGUNDOS) ---
   useEffect(() => {
     if (successMessage) {
-      setCountdown(10);
+      setCountdown(20);
       const countdownTimer = setInterval(() => {
         setCountdown(prev => (prev > 1 ? prev - 1 : 0));
       }, 1000);
 
       const logoutTimer = setTimeout(() => {
         finalizarYLimpiarSesion();
-      }, 10000);
+      }, 20000);
 
       return () => {
         clearInterval(countdownTimer);
@@ -539,7 +539,8 @@ function App() {
           sede: result.data.sede,
           hora: horaFormateada,
           distancia: result.data.distancia_metros,
-          fueraDeRango: result.data.fuera_de_rango
+          fueraDeRango: result.data.fuera_de_rango,
+          horasTrabajadas: result.data.horas_trabajadas
         });
         showToast('Asistencia registrada con éxito.', 'success');
       } else {
@@ -1625,6 +1626,15 @@ function App() {
                 </div>
               </div>
 
+              {successMessage.tipo === 'SALIDA' && successMessage.horasTrabajadas !== null && successMessage.horasTrabajadas !== undefined && (
+                <div className="mb-6 p-4 bg-emerald-950/40 border border-emerald-500/20 rounded-2xl flex flex-col items-center justify-center text-center">
+                  <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wide">Duración del Turno</span>
+                  <span className="text-sm font-mono font-black text-emerald-300 mt-1">
+                    Has completado {successMessage.horasTrabajadas} horas en este turno
+                  </span>
+                </div>
+              )}
+
                {/* Reloj de cuenta regresiva */}
               <div className="text-xs text-slate-400 font-bold mb-4">
                 El sistema volverá al inicio en <span className="text-emerald-400 font-mono text-sm">{countdown}</span> segundos...
@@ -2181,7 +2191,7 @@ function App() {
                       </table>
                     </div>
                   );
-                })}
+                })()}
 
                 {/* Tabla de Resultados: Reporte Lineal */}
                 {adminTab === 'lineal' && (() => {
@@ -2238,7 +2248,7 @@ function App() {
                       </table>
                     </div>
                   );
-                })}
+                })()}
 
                 {adminTab === 'dashboard' && (() => {
                   if (dashboardLoading) {
@@ -2486,7 +2496,7 @@ function App() {
                       </div>
                     </div>
                   );
-                })}
+                })()}
 
                 {/* Tabla de Resultados: Reporte Anual */}
                 {adminTab === 'reporte-anual' && (() => {
@@ -2570,7 +2580,7 @@ function App() {
                       </table>
                     </div>
                   );
-                })}
+                })()}
 
                 {/* Tabla de Resultados: Detalle de Turnos */}
                 {adminTab === 'detalle-turnos' && (() => {
@@ -2617,7 +2627,6 @@ function App() {
                             <tr className="bg-slate-900/80 border-b border-slate-800 text-slate-400 font-semibold text-[10px] tracking-wide uppercase">
                               <th className="p-3">Fecha</th>
                               <th className="p-3">Anestesiólogo</th>
-                              <th className="p-3">Sede Clínica</th>
                               <th className="p-3 text-center">Ingreso</th>
                               <th className="p-3 text-center">Salida</th>
                               <th className="p-3 text-center">Horas Trabajadas</th>
@@ -2629,7 +2638,6 @@ function App() {
                               <tr key={idx} className="hover:bg-slate-900/40 transition-colors">
                                 <td className="p-3 text-white font-semibold">{t.fecha}</td>
                                 <td className="p-3 text-slate-200 font-bold">{t.anestesiologo}</td>
-                                <td className="p-3 text-slate-300">{t.sede}</td>
                                 <td className="p-3 text-center text-slate-400 font-mono">{t.ingreso}</td>
                                 <td className="p-3 text-center text-slate-400 font-mono">{t.salida}</td>
                                 <td className="p-3 text-center text-emerald-400 font-mono font-bold">{t.horas_trabajadas}</td>
@@ -2641,7 +2649,7 @@ function App() {
                       </div>
                     </div>
                   );
-                })}
+                })()}
               </div>
             </div>
           </div>
