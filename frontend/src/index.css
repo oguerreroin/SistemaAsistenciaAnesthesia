@@ -500,3 +500,9 @@ body {
     margin-right: auto;
   }
 }
+
+/* --- Recharts Height Helpers --- */
+.h-\[280px\] { height: 280px !important; }
+.h-\[250px\] { height: 250px !important; }
+.h-\[200px\] { height: 200px !important; }
+

@@ -945,6 +945,315 @@ exports.obtenerReporteAnalitico = async (req, res) => {
   }
 };
 
+// Función para obtener fecha/hora actual en America/Lima (UTC-5 determinista)
+function getLimaNow() {
+  const now = new Date();
+  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+  return new Date(utc - (5 * 3600000));
+}
+
+// Calcular dashboard y métricas completas adaptadas al rango de tiempo dinámico
+function calcularDashboardMetricasCompleto(rangoStart, rangoEnd, marcaciones, ajustes, usuarios, sedes, mes, anio, sedeIdFilter, rango) {
+  // 1. Filtrar marcaciones por sede (si hay filtro)
+  const marcsFiltradas = marcaciones.filter(m => {
+    const matchSede = sedeIdFilter ? (m.sede_id === sedeIdFilter) : true;
+    return matchSede;
+  });
+
+  // 2. Agrupar por usuario
+  const porUsuario = {};
+  marcsFiltradas.forEach(m => {
+    const uid = m.usuario_id;
+    if (!porUsuario[uid]) porUsuario[uid] = [];
+    porUsuario[uid].push(m);
+  });
+
+  // 3. Emparejar turnos y calcular horas totales por usuario dentro del rango estricto [rangoStart, rangoEnd]
+  const usuariosConHoras = usuarios.map(u => {
+    const marcasUser = porUsuario[u.id] || [];
+    const marcasOrdenadas = marcasUser.sort((a, b) => new Date(a.fecha_hora) - new Date(b.fecha_hora));
+
+    let horasAcumuladas = 0;
+    const turnos = [];
+    let i = 0;
+    while (i < marcasOrdenadas.length) {
+      const current = marcasOrdenadas[i];
+      if (current.tipo_marcado === 'ENTRADA') {
+        if (i + 1 < marcasOrdenadas.length) {
+          const next = marcasOrdenadas[i + 1];
+          if (next.tipo_marcado === 'SALIDA') {
+            const diff = (new Date(next.fecha_hora) - new Date(current.fecha_hora)) / 3600000;
+            if (diff > 0) {
+              const dateEntrada = new Date(current.fecha_hora);
+              // Verificar si la fecha de ENTRADA está dentro del rango estricto
+              if (dateEntrada >= rangoStart && dateEntrada <= rangoEnd) {
+                horasAcumuladas += diff;
+                turnos.push({ entrada: current, salida: next, horas: diff });
+              }
+            }
+            i += 2;
+            continue;
+          }
+        }
+      }
+      i++;
+    }
+
+    return {
+      ...u,
+      horasAcumuladas: Math.round(horasAcumuladas * 100) / 100,
+      turnos
+    };
+  });
+
+  // 4. Leaderboard (Top 10)
+  const leaderboard = [...usuariosConHoras]
+    .filter(u => u.rol && u.rol.toLowerCase().startsWith('medico'))
+    .sort((a, b) => b.horasAcumuladas - a.horasAcumuladas)
+    .slice(0, 10)
+    .map(u => ({ nombre: u.nombre, horas: u.horasAcumuladas }));
+
+  // 5. Distribución de Puntos (Horas / 6)
+  let alto = 0, medio = 0, base = 0, revision = 0;
+  usuariosConHoras.filter(u => u.rol && u.rol.toLowerCase().startsWith('medico')).forEach(u => {
+    const totalPuntos = u.horasAcumuladas / 6;
+    if (totalPuntos > 25) alto++;
+    else if (totalPuntos >= 15) medio++;
+    else if (totalPuntos >= 5) base++;
+    else revision++;
+  });
+  const distribucionPuntos = { alto, medio, base, revision };
+
+  // 6. Resumen por Sedes
+  const sedeMap = {};
+  sedes.forEach(s => {
+    if (!s.nombre.includes('Alto Bellavista')) {
+      sedeMap[s.id] = { sede: s.nombre, horasTotales: 0, puntos: 0, userIds: new Set() };
+    }
+  });
+
+  usuariosConHoras.filter(u => u.rol && u.rol.toLowerCase().startsWith('medico')).forEach(u => {
+    u.turnos.forEach(t => {
+      const sedeId = t.entrada.sede_id;
+      if (sedeMap[sedeId]) {
+        sedeMap[sedeId].horasTotales += t.horas;
+        sedeMap[sedeId].userIds.add(u.id); // Guardamos la identidad única del médico
+      }
+    });
+  });
+
+  const resumenSedes = Object.values(sedeMap).map(s => {
+    s.horasTotales = Math.round(s.horasTotales * 100) / 100;
+    s.puntos = Math.round((s.horasTotales / 6) * 100) / 100;
+    s.count = s.userIds.size; // Total de colaboradores únicos en esta sede
+    s.promedio = s.count > 0 ? Math.round((s.horasTotales / s.count) * 100) / 100 : 0;
+    s.estado = s.promedio >= 8 ? 'Óptimo' : s.promedio >= 5 ? 'Aceptable' : 'Bajo';
+    delete s.userIds; // Limpiamos la estructura interna
+    return s;
+  });
+
+  // 7. Tendencia temporal adaptada al rango
+  const tendenciaTemporal = [];
+  const turnosDiarios = {}; // Turnos diurnos vs nocturnos
+  const ratioFueraRango = []; // Alertas GPS
+
+  if (rango === 'dia') {
+    // 1 único punto para hoy
+    let horasTotalesDia = 0;
+    usuariosConHoras.filter(u => u.rol && u.rol.toLowerCase().startsWith('medico')).forEach(u => { horasTotalesDia += u.horasAcumuladas; });
+    tendenciaTemporal.push({ dia: 'Hoy', horasTotales: Math.round(horasTotalesDia * 100) / 100 });
+
+    // Turnos
+    let diurnos = 0, nocturnos = 0;
+    usuariosConHoras.filter(u => u.rol && u.rol.toLowerCase().startsWith('medico')).forEach(u => {
+      u.turnos.forEach(t => {
+        const hrs = new Date(t.entrada.fecha_hora).getHours();
+        if (hrs >= 19 || hrs < 7) nocturnos++;
+        else diurnos++;
+      });
+    });
+    turnosDiarios['Hoy'] = { diurnos, nocturnos };
+
+    // Alertas GPS
+    let total = 0, fueraCount = 0;
+    marcsFiltradas.forEach(m => {
+      const date = new Date(m.fecha_hora);
+      if (date >= rangoStart && date <= rangoEnd) {
+        total++;
+        const Sede = sedes.find(s => s.id === m.sede_id) || {};
+        const radio = parseInt(Sede.radio_permitido_metros || 200, 10);
+        if (parseFloat(m.distancia_metros) > radio) fueraCount++;
+      }
+    });
+    ratioFueraRango.push({ dia: 'Hoy', ratio: total > 0 ? Math.round((fueraCount / total) * 10000) / 100 : 0, total, fueraCount });
+
+  } else if (rango === 'semana') {
+    // 7 días de la semana actual
+    const diasSemana = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+    for (let d = 0; d < 7; d++) {
+      const currentDayDate = new Date(rangoStart);
+      currentDayDate.setDate(rangoStart.getDate() + d);
+      const startOfDay = new Date(currentDayDate.getFullYear(), currentDayDate.getMonth(), currentDayDate.getDate(), 0, 0, 0, 0);
+      const endOfDay = new Date(currentDayDate.getFullYear(), currentDayDate.getMonth(), currentDayDate.getDate(), 23, 59, 59, 999);
+
+      let horasTotalesDia = 0;
+      let diurnos = 0, nocturnos = 0;
+
+      usuariosConHoras.filter(u => u.rol && u.rol.toLowerCase().startsWith('medico')).forEach(u => {
+        u.turnos.forEach(t => {
+          const de = new Date(t.entrada.fecha_hora);
+          if (de >= startOfDay && de <= endOfDay) {
+            horasTotalesDia += t.horas;
+            const hrs = de.getHours();
+            if (hrs >= 19 || hrs < 7) nocturnos++;
+            else diurnos++;
+          }
+        });
+      });
+
+      const label = diasSemana[d];
+      tendenciaTemporal.push({ dia: label, horasTotales: Math.round(horasTotalesDia * 100) / 100 });
+      turnosDiarios[label] = { diurnos, nocturnos };
+
+      // Alertas GPS
+      let total = 0, fueraCount = 0;
+      marcsFiltradas.forEach(m => {
+        const date = new Date(m.fecha_hora);
+        if (date >= startOfDay && date <= endOfDay) {
+          total++;
+          const Sede = sedes.find(s => s.id === m.sede_id) || {};
+          const radio = parseInt(Sede.radio_permitido_metros || 200, 10);
+          if (parseFloat(m.distancia_metros) > radio) fueraCount++;
+        }
+      });
+      ratioFueraRango.push({ dia: label, ratio: total > 0 ? Math.round((fueraCount / total) * 10000) / 100 : 0, total, fueraCount });
+    }
+
+  } else if (rango === 'anio') {
+    // 12 meses del año actual
+    const mesesAnio = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    for (let m = 0; m < 12; m++) {
+      const startOfMonth = new Date(rangoStart.getFullYear(), m, 1, 0, 0, 0, 0);
+      const endOfMonth = new Date(rangoStart.getFullYear(), m + 1, 0, 23, 59, 59, 999);
+
+      let horasTotalesMes = 0;
+      let diurnos = 0, nocturnos = 0;
+
+      usuariosConHoras.filter(u => u.rol && u.rol.toLowerCase().startsWith('medico')).forEach(u => {
+        u.turnos.forEach(t => {
+          const de = new Date(t.entrada.fecha_hora);
+          if (de >= startOfMonth && de <= endOfMonth) {
+            horasTotalesMes += t.horas;
+            const hrs = de.getHours();
+            if (hrs >= 19 || hrs < 7) nocturnos++;
+            else diurnos++;
+          }
+        });
+      });
+
+      const label = mesesAnio[m];
+      tendenciaTemporal.push({ dia: label, horasTotales: Math.round(horasTotalesMes * 100) / 100 });
+      turnosDiarios[label] = { diurnos, nocturnos };
+
+      // Alertas GPS
+      let total = 0, fueraCount = 0;
+      marcsFiltradas.forEach(m => {
+        const date = new Date(m.fecha_hora);
+        if (date >= startOfMonth && date <= endOfMonth) {
+          total++;
+          const Sede = sedes.find(s => s.id === m.sede_id) || {};
+          const radio = parseInt(Sede.radio_permitido_metros || 200, 10);
+          if (parseFloat(m.distancia_metros) > radio) fueraCount++;
+        }
+      });
+      ratioFueraRango.push({ dia: label, ratio: total > 0 ? Math.round((fueraCount / total) * 10000) / 100 : 0, total, fueraCount });
+    }
+
+  } else {
+    // Mes actual o por defecto (1 a diasEnMes)
+    const diasEnPeriodo = new Date(anio, mes, 0).getDate();
+    for (let d = 1; d <= diasEnPeriodo; d++) {
+      const startOfDay = new Date(anio, mes - 1, d, 0, 0, 0, 0);
+      const endOfDay = new Date(anio, mes - 1, d, 23, 59, 59, 999);
+
+      let horasTotalesDia = 0;
+      let diurnos = 0, nocturnos = 0;
+
+      usuariosConHoras.filter(u => u.rol && u.rol.toLowerCase().startsWith('medico')).forEach(u => {
+        u.turnos.forEach(t => {
+          const de = new Date(t.entrada.fecha_hora);
+          if (de >= startOfDay && de <= endOfDay) {
+            horasTotalesDia += t.horas;
+            const hrs = de.getHours();
+            if (hrs >= 19 || hrs < 7) nocturnos++;
+            else diurnos++;
+          }
+        });
+      });
+
+      tendenciaTemporal.push({ dia: d, horasTotales: Math.round(horasTotalesDia * 100) / 100 });
+      turnosDiarios[d] = { diurnos, nocturnos };
+
+      // Alertas GPS
+      let total = 0, fueraCount = 0;
+      marcsFiltradas.forEach(m => {
+        const date = new Date(m.fecha_hora);
+        if (date >= startOfDay && date <= endOfDay) {
+          total++;
+          const Sede = sedes.find(s => s.id === m.sede_id) || {};
+          const radio = parseInt(Sede.radio_permitido_metros || 200, 10);
+          if (parseFloat(m.distancia_metros) > radio) fueraCount++;
+        }
+      });
+      ratioFueraRango.push({ dia: d, ratio: total > 0 ? Math.round((fueraCount / total) * 10000) / 100 : 0, total, fueraCount });
+    }
+  }
+
+  // 8. Convertir turnosDiarios a formato Recharts densidadTurnos
+  const densidadTurnos = Object.keys(turnosDiarios).map(key => ({
+    dia: key,
+    diurnos: turnosDiarios[key].diurnos,
+    nocturnos: turnosDiarios[key].nocturnos
+  }));
+
+  return {
+    leaderboard,
+    distribucionPuntos,
+    resumenSedes,
+    colaboradoresUnicos: usuariosConHoras.filter(u => u.turnos.length > 0 && u.rol && u.rol.toLowerCase().startsWith('medico')).length,
+    tendenciaTemporal,
+    densidadTurnos,
+    ratioFueraRango
+  };
+}
+
+// Local helper to parse ISO week strings like "YYYY-Www" into Monday/Sunday Date objects
+function getDatesOfISOWeek(weekStr) {
+  if (!weekStr) return null;
+  const parts = weekStr.split('-W');
+  if (parts.length !== 2) return null;
+  const year = parseInt(parts[0], 10);
+  const week = parseInt(parts[1], 10);
+  if (isNaN(year) || isNaN(week)) return null;
+
+  const jan4 = new Date(year, 0, 4);
+  const dayOfWeek = jan4.getDay();
+  const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  const mondayOfWeek1 = new Date(jan4);
+  mondayOfWeek1.setDate(jan4.getDate() + diffToMonday);
+
+  const targetMonday = new Date(mondayOfWeek1);
+  targetMonday.setDate(mondayOfWeek1.getDate() + (week - 1) * 7);
+
+  const targetSunday = new Date(targetMonday);
+  targetSunday.setDate(targetMonday.getDate() + 6);
+
+  return {
+    monday: targetMonday,
+    sunday: targetSunday
+  };
+}
+
 // B. Dashboard Métricas
 exports.obtenerDashboardMetricas = async (req, res) => {
   try {
@@ -952,9 +1261,78 @@ exports.obtenerDashboardMetricas = async (req, res) => {
     const mes = parseInt(req.query.mes, 10) || (now.getMonth() + 1);
     const anio = parseInt(req.query.anio, 10) || now.getFullYear();
     const sedeIdFilter = req.query.sede_id ? parseInt(req.query.sede_id, 10) : null;
+    const rango = req.query.rango; // 'dia', 'semana', 'mes', 'anio'
 
-    const startDate = new Date(anio, mes - 1, 1);
-    const endDate = new Date(anio, mes, 1, 23, 59, 59, 999);
+    let rangoStart, rangoEnd;
+    let mesFiltro = mes;
+    let anioFiltro = anio;
+
+    if (rango) {
+      const limaNow = getLimaNow();
+      const isPeriodoActual = (mes === (limaNow.getMonth() + 1)) && (anio === limaNow.getFullYear());
+
+      if (rango === 'dia') {
+        let targetYear = anio;
+        let targetMonth = mes;
+        let targetDay = isPeriodoActual ? limaNow.getDate() : 1;
+
+        if (req.query.selectedDate) {
+          const parts = req.query.selectedDate.split('-');
+          if (parts.length === 3) {
+            targetYear = parseInt(parts[0], 10);
+            targetMonth = parseInt(parts[1], 10);
+            targetDay = parseInt(parts[2], 10);
+          }
+        }
+        rangoStart = new Date(targetYear, targetMonth - 1, targetDay, 0, 0, 0, 0);
+        rangoEnd = new Date(targetYear, targetMonth - 1, targetDay, 23, 59, 59, 999);
+        mesFiltro = targetMonth;
+        anioFiltro = targetYear;
+      } else if (rango === 'semana') {
+        let baseMonday, baseSunday;
+        let parsed = null;
+        if (req.query.selectedWeek) {
+          parsed = getDatesOfISOWeek(req.query.selectedWeek);
+        }
+        
+        if (parsed) {
+          baseMonday = parsed.monday;
+          baseSunday = parsed.sunday;
+        } else {
+          const baseDate = isPeriodoActual ? limaNow : new Date(anio, mes - 1, 1);
+          const dayOfWeek = baseDate.getDay();
+          const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+          const monday = new Date(baseDate);
+          monday.setDate(baseDate.getDate() + diffToMonday);
+          baseMonday = monday;
+          baseSunday = new Date(monday);
+          baseSunday.setDate(monday.getDate() + 6);
+        }
+        
+        rangoStart = new Date(baseMonday.getFullYear(), baseMonday.getMonth(), baseMonday.getDate(), 0, 0, 0, 0);
+        rangoEnd = new Date(baseSunday.getFullYear(), baseSunday.getMonth(), baseSunday.getDate(), 23, 59, 59, 999);
+        
+        mesFiltro = baseMonday.getMonth() + 1;
+        anioFiltro = baseMonday.getFullYear();
+      } else if (rango === 'mes') {
+        rangoStart = new Date(anio, mes - 1, 1, 0, 0, 0, 0);
+        rangoEnd = new Date(anio, mes, 0, 23, 59, 59, 999);
+        mesFiltro = mes;
+        anioFiltro = anio;
+      } else if (rango === 'anio') {
+        rangoStart = new Date(anio, 0, 1, 0, 0, 0, 0);
+        rangoEnd = new Date(anio, 11, 31, 23, 59, 59, 999);
+        mesFiltro = mes;
+        anioFiltro = anio;
+      }
+    } else {
+      rangoStart = new Date(anio, mes - 1, 1, 0, 0, 0, 0);
+      rangoEnd = new Date(anio, mes, 0, 23, 59, 59, 999);
+    }
+
+    // Ventana extendida para turnos nocturnos (+- 24 horas)
+    const startDate = new Date(rangoStart.getTime() - 24 * 3600000);
+    const endDate = new Date(rangoEnd.getTime() + 24 * 3600000);
 
     const marcsRes = await db.query(
       `SELECT m.id, m.usuario_id, m.sede_id, m.tipo_marcado, m.fecha_hora, m.latitud_marcado, m.longitud_marcado, m.foto_path, m.distancia_metros
@@ -967,7 +1345,7 @@ exports.obtenerDashboardMetricas = async (req, res) => {
 
     const ajustesRes = await db.query(
       'SELECT * FROM ajustes_reporte WHERE mes = $1 AND anio = $2',
-      [mes, anio]
+      [mesFiltro, anioFiltro]
     );
     const ajustes = ajustesRes.rows;
 
@@ -977,8 +1355,13 @@ exports.obtenerDashboardMetricas = async (req, res) => {
     const sedesRes = await db.query('SELECT id, nombre, latitud, longitud, radio_permitido_metros FROM sedes ORDER BY nombre ASC');
     const sedes = sedesRes.rows;
 
-    const reporteAnalitico = calcularReporteAnalitico(marcaciones, ajustes, usuarios, sedes, mes, anio, sedeIdFilter);
-    const dashboard = calcularDashboardMetricas(reporteAnalitico, marcaciones, sedes, mes, anio);
+    // Calcular dashboard y métricas completas basándose en el rango estricto
+    const dashboard = calcularDashboardMetricasCompleto(rangoStart, rangoEnd, marcaciones, ajustes, usuarios, sedes, mesFiltro, anioFiltro, sedeIdFilter, rango);
+    
+    // Inyectar el rango de fechas calculado
+    dashboard.rangoStart = rangoStart.toISOString();
+    dashboard.rangoEnd = rangoEnd.toISOString();
+
     return res.json(dashboard);
   } catch (error) {
     console.error('Error al obtener dashboard métricas:', error);

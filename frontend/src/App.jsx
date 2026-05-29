@@ -58,9 +58,39 @@ const isLocalEnv =
 const API_BASE = isLocalEnv 
   ? `http://${window.location.hostname}:5000/api` 
   : '/api';
-const STORAGE_BASE = isLocalEnv 
-  ? `http://${window.location.hostname}:5000` 
-  : '';
+const formatRangeDates = (startStr, endStr, range) => {
+  if (!startStr || !endStr) return '';
+  // Reemplazar T y Z para evitar corrimientos horaria en navegadores cliente
+  const start = new Date(startStr.substring(0, 19).replace('T', ' '));
+  const end = new Date(endStr.substring(0, 19).replace('T', ' '));
+  const months = [
+    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
+    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+  ];
+  
+  const startDay = start.getDate();
+  const startMonth = months[start.getMonth()];
+  const startYear = start.getFullYear();
+  
+  const endDay = end.getDate();
+  const endMonth = months[end.getMonth()];
+  const endYear = end.getFullYear();
+
+  if (range === 'dia') {
+    return `— del ${startDay} de ${startMonth}, ${startYear}`;
+  } else if (range === 'semana') {
+    if (startMonth === endMonth) {
+      return `— Semana del ${startDay} al ${endDay} de ${startMonth}, ${startYear}`;
+    } else {
+      return `— Semana del ${startDay} de ${startMonth} al ${endDay} de ${endMonth}, ${startYear}`;
+    }
+  } else if (range === 'mes') {
+    return `— de ${startMonth} de ${startYear}`;
+  } else if (range === 'anio') {
+    return `— del Año ${startYear}`;
+  }
+  return '';
+};
 
 function App() {
   // --- PANTALLAS Y USUARIOS ---
@@ -111,6 +141,20 @@ function App() {
   const [dashboardData, setDashboardData] = useState(null);
   const [reporteLoading, setReporteLoading] = useState(false);
   const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [activeRange, setActiveRange] = useState('mes'); // 'dia', 'semana', 'mes', 'anio'
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const today = new Date();
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  });
+  const [selectedWeek, setSelectedWeek] = useState(() => {
+    const now = new Date();
+    const d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1));
+    const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1)/7);
+    return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+  });
   const [selectedMonth, setSelectedMonth] = useState(1); // default to 1 (January)
   const [selectedYear, setSelectedYear] = useState(2026); // default to 2026
   
@@ -693,7 +737,7 @@ function App() {
     if (!adminLoggedIn) return;
     setDashboardLoading(true);
     try {
-      let url = `${API_BASE}/asistencia/dashboard-metricas?mes=${selectedMonth}&anio=${selectedYear}`;
+      let url = `${API_BASE}/asistencia/dashboard-metricas?mes=${selectedMonth}&anio=${selectedYear}&rango=${activeRange}&selectedDate=${selectedDate}&selectedWeek=${selectedWeek}`;
       if (filtroSede) url += `&sede_id=${filtroSede}`;
       const res = await fetch(url);
       if (res.ok) {
@@ -758,7 +802,7 @@ function App() {
         cargarDetalleTurnos();
       }
     }
-  }, [adminTab, selectedMonth, selectedYear, filtroSede, adminLoggedIn]);
+  }, [adminTab, selectedMonth, selectedYear, filtroSede, adminLoggedIn, activeRange, selectedDate, selectedWeek]);
 
   const handleCellChange = (userId, field, value) => {
     const floatVal = parseFloat(value) || 0;
@@ -1103,7 +1147,9 @@ function App() {
   });
 
   return (
-    <div className="min-h-screen p-4 md:p-6 flex flex-col justify-between max-w-7xl mx-auto">
+    <div className={`min-h-screen p-4 md:p-6 flex flex-col justify-between mx-auto transition-all duration-300 ${
+      adminLoggedIn ? 'w-full max-w-none px-6 md:px-12' : 'max-w-7xl w-full'
+    }`}>
       
       {/* Contenedor de Toasts Flotantes */}
       <div className="fixed bottom-5 right-5 z-[100] flex flex-col gap-2 max-w-sm w-full pointer-events-none">
@@ -1258,7 +1304,7 @@ function App() {
             </div>
 
             {/* Columna Derecha: Formulario + Keypad */}
-            <div className="lg:col-span-5 w-full">
+            <div className="lg:col-span-5 w-full max-w-sm mx-auto">
               <div className="glass-panel p-6 glass-panel-primary flex flex-col gap-4">
                 <div className="text-center flex flex-col items-center">
                   <div className="h-16 w-16 rounded-2xl bg-white p-1.5 mb-3 flex items-center justify-center shadow-lg shadow-cyan-500/10 overflow-hidden">
@@ -1376,6 +1422,21 @@ function App() {
                       </>
                     )}
                   </button>
+
+                  <div className="text-center mt-3 border-t border-slate-800/80 pt-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setErrorMessage('');
+                        setAdminSuccessMsg('');
+                        setIsAdminMode(true);
+                      }}
+                      className="text-[11px] font-bold text-indigo-400 hover:text-indigo-300 transition-colors cursor-pointer flex items-center justify-center gap-1.5 mx-auto bg-transparent border-none outline-none"
+                    >
+                      <Settings className="h-3.5 w-3.5" />
+                      Acceso Administrativo / Dashboard
+                    </button>
+                  </div>
 
                 </form>
               </div>
@@ -1501,7 +1562,7 @@ function App() {
             </div>
 
             {/* Columna Derecha: Confirmación de Marcado */}
-            <div className="lg:col-span-5">
+            <div className="lg:col-span-5 max-w-md mx-auto w-full">
               <div className="glass-panel p-6 glass-panel-primary flex flex-col gap-4 justify-between min-h-[380px]">
                 <div>
                   <div className="text-center pb-2 border-b border-slate-800">
@@ -1695,6 +1756,17 @@ function App() {
               >
                 Ingresar al Dashboard
               </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setErrorMessage('');
+                  setIsAdminMode(false);
+                }}
+                className="w-full py-2 bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-400 hover:text-slate-300 rounded-xl text-xs font-bold uppercase transition-all cursor-pointer"
+              >
+                Volver al Kiosko
+              </button>
             </form>
           </div>
         )}
@@ -1795,6 +1867,21 @@ function App() {
                   </button>
                 </form>
               </div>
+
+              {/* Botón de Salida Inmediata (Volver al Kiosko / Cerrar Sesión) */}
+              <button
+                onClick={() => {
+                  setErrorMessage('');
+                  setAdminSuccessMsg('');
+                  setAdminLoggedIn(false);
+                  setIsAdminMode(false);
+                  showToast('Saliendo del panel administrativo.', 'info');
+                }}
+                className="w-full py-3 bg-red-950/20 border border-red-500/30 hover:bg-red-900/30 text-red-400 hover:text-red-300 rounded-xl text-xs font-bold uppercase transition-all duration-200 cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-red-950/10"
+              >
+                <LogOut className="h-4 w-4" />
+                Volver al Kiosko (Cerrar Sesión)
+              </button>
             </div>
 
             {/* Columna Derecha: Historial y Descargas de Reportes (Excel / PDF) */}
@@ -1858,6 +1945,30 @@ function App() {
                         <option value="hoy">Hoy</option>
                         <option value="semana">Esta Semana</option>
                         <option value="mes">Este Mes</option>
+                      </select>
+                    ) : adminTab === 'dashboard' && activeRange === 'dia' ? (
+                      <input
+                        type="date"
+                        value={selectedDate}
+                        onChange={(e) => setSelectedDate(e.target.value)}
+                        className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 font-semibold focus:outline-none cursor-pointer"
+                      />
+                    ) : adminTab === 'dashboard' && activeRange === 'semana' ? (
+                      <input
+                        type="week"
+                        value={selectedWeek}
+                        onChange={(e) => setSelectedWeek(e.target.value)}
+                        className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 font-semibold focus:outline-none cursor-pointer"
+                      />
+                    ) : adminTab === 'dashboard' && activeRange === 'anio' ? (
+                      <select
+                        value={selectedYear}
+                        onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
+                        className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-300 font-semibold focus:outline-none cursor-pointer"
+                      >
+                        <option value={2025}>2025</option>
+                        <option value={2026}>2026</option>
+                        <option value={2027}>2027</option>
                       </select>
                     ) : (
                       <>
@@ -2268,24 +2379,24 @@ function App() {
                     );
                   }
 
-                  const { leaderboard, resumenSedes, ratioFueraRango, densidadTurnos, tendenciaTemporal } = dashboardData;
+                  const { leaderboard, resumenSedes, ratioFueraRango, densidadTurnos, tendenciaTemporal, colaboradoresUnicos } = dashboardData;
                   
                   // Calculate quick top metric summaries
                   const totalHorasEquipo = tendenciaTemporal.reduce((acc, curr) => acc + curr.horasTotales, 0);
-                  const activeColabs = resumenSedes.reduce((acc, curr) => acc + (curr.count || 0), 0);
+                  const activeColabs = colaboradoresUnicos || 0;
                   const totalPuntosAcumulados = resumenSedes.reduce((acc, curr) => acc + (curr.puntos || 0), 0);
 
                   return (
-                    <div className="flex flex-col gap-6 mt-2">
+                    <div className="flex flex-col gap-8 mt-4">
                       {/* Mini Metric Summaries */}
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                         <div className="metric-mini-card bg-slate-950/60 border border-slate-900 rounded-xl p-4 flex flex-col justify-between">
                           <div className="metric-mini-value font-mono text-xl font-bold text-white">{Math.round(totalHorasEquipo)} hrs</div>
                           <div className="metric-mini-label text-[10px] text-slate-500 font-semibold uppercase tracking-wider mt-1">Total Horas Guardia</div>
                         </div>
                         <div className="metric-mini-card bg-slate-950/60 border border-slate-900 rounded-xl p-4 flex flex-col justify-between">
                           <div className="metric-mini-value font-mono text-xl font-bold text-emerald-400">{activeColabs}</div>
-                          <div className="metric-mini-label text-[10px] text-slate-500 font-semibold uppercase tracking-wider mt-1">Colaboradores Activos</div>
+                          <div className="metric-mini-label text-[10px] text-slate-500 font-semibold uppercase tracking-wider mt-1">Médicos Activos</div>
                         </div>
                         <div className="metric-mini-card bg-slate-950/60 border border-slate-900 rounded-xl p-4 flex flex-col justify-between">
                           <div className="metric-mini-value font-mono text-xl font-bold text-indigo-400">{Math.round(totalPuntosAcumulados * 100) / 100} pts</div>
@@ -2293,28 +2404,61 @@ function App() {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                         {/* Gráfico 1: Leaderboard */}
-                        <div className="chart-card bg-slate-950/40 p-4 border border-slate-900 rounded-xl">
-                          <h4 className="chart-card-title text-sm font-bold text-white m-0">Ranking de Horas (Leaderboard)</h4>
+                        <div className="chart-card bg-slate-950/40 p-4 border border-slate-900 rounded-xl lg:col-span-2">
+                          <h4 className="chart-card-title text-sm font-bold text-white m-0">Ranking de Horas (Leaderboard) {dashboardData?.rangoStart && formatRangeDates(dashboardData.rangoStart, dashboardData.rangoEnd, activeRange)}</h4>
                           <p className="chart-card-subtitle text-[10px] text-slate-500 m-0 mt-0.5">Top 10 colaboradores con más horas acumuladas</p>
-                          <div className="h-[280px] w-full mt-4">
+                          
+                          {/* Filtros Temporales Dinámicos con Estilo Glassmorphism Pastel */}
+                          <div className="flex items-center gap-1 bg-slate-950/70 p-0.5 rounded-lg border border-slate-900 w-fit mt-3">
+                            {['dia', 'semana', 'mes', 'anio'].map((r) => {
+                              const isActive = activeRange === r;
+                              return (
+                                <button
+                                  key={r}
+                                  onClick={() => setActiveRange(r)}
+                                  className={`px-2.5 py-0.5 text-[9px] font-bold uppercase rounded-md transition-all duration-200 ${
+                                    isActive
+                                      ? 'bg-indigo-600/30 text-indigo-400 border border-indigo-500/40 shadow-[0_0_10px_rgba(99,102,241,0.15)]'
+                                      : 'text-slate-500 border border-transparent hover:text-slate-300 hover:bg-slate-900/40'
+                                  }`}
+                                >
+                                  {r === 'dia' ? 'Día' : r === 'semana' ? 'Semana' : r === 'mes' ? 'Mes' : 'Año'}
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          <div className="h-[280px] w-full mt-5">
                             {leaderboard && leaderboard.length > 0 ? (
-                              <ResponsiveContainer width="100%" height="100%">
+                              <ResponsiveContainer width="100%" height={280}>
                                 <BarChart
                                   layout="vertical"
                                   data={leaderboard}
                                   margin={{ top: 5, right: 15, left: 10, bottom: 5 }}
                                 >
+                                  <defs>
+                                    <linearGradient id="leaderboardGradient" x1="0" y1="0" x2="1" y2="0">
+                                      <stop offset="0%" stopColor="#4f46e5" stopOpacity={0.85} />
+                                      <stop offset="100%" stopColor="#818cf8" stopOpacity={0.95} />
+                                    </linearGradient>
+                                  </defs>
                                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                                   <XAxis type="number" stroke="#64748b" fontSize={10} />
                                   <YAxis type="category" dataKey="nombre" stroke="#64748b" fontSize={9} width={100} />
                                   <Tooltip 
-                                    contentStyle={{ background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '8px' }}
-                                    labelStyle={{ color: '#e2e8f0', fontWeight: 'bold', fontSize: '11px' }}
+                                    contentStyle={{ 
+                                      background: '#020617', 
+                                      border: '1px solid rgba(99,102,241,0.25)', 
+                                      borderRadius: '12px',
+                                      padding: '12px 16px',
+                                      boxShadow: '0 10px 15px -3px rgba(0,0,0,0.5)'
+                                    }}
+                                    labelStyle={{ color: '#f8fafc', fontWeight: 'bold', fontSize: '11px' }}
                                     itemStyle={{ color: '#818cf8', fontSize: '11px' }}
                                   />
-                                  <Bar dataKey="horas" fill="#6366f1" radius={[0, 4, 4, 0]} />
+                                  <Bar dataKey="horas" fill="url(#leaderboardGradient)" radius={[0, 6, 6, 0]} />
                                 </BarChart>
                               </ResponsiveContainer>
                             ) : (
@@ -2324,10 +2468,13 @@ function App() {
                         </div>
 
                         {/* Gráfico 2: Distribución por Sede (Donut Chart) */}
-                        <div className="chart-card bg-slate-950/40 p-4 border border-slate-900 rounded-xl">
-                          <h4 className="chart-card-title text-sm font-bold text-white m-0">Distribución por Sede</h4>
-                          <p className="chart-card-subtitle text-[10px] text-slate-500 m-0 mt-0.5">Porcentaje de horas de guardia por clínica</p>
-                          <div className="h-[280px] w-full mt-4 flex flex-col sm:flex-row items-center justify-center gap-4">
+                        <div className="chart-card bg-slate-950/40 p-4 border border-slate-900 rounded-xl lg:col-span-1 min-h-[340px] flex flex-col justify-between">
+                          <div>
+                            <h4 className="chart-card-title text-sm font-bold text-white m-0">Distribución por Sede</h4>
+                            <p className="chart-card-subtitle text-[10px] text-slate-500 m-0 mt-0.5">Porcentaje de horas de guardia por clínica</p>
+                          </div>
+                          
+                          <div className="w-full h-44 flex items-center justify-center relative mt-3">
                             {resumenSedes ? (() => {
                               const colors = ['#6366f1', '#10b981', '#f59e0b', '#3b82f6', '#ec4899', '#8b5cf6'];
                               const data = resumenSedes.map((s, idx) => ({
@@ -2337,115 +2484,156 @@ function App() {
                               })).filter(d => d.value > 0);
 
                               if (data.length === 0) {
-                                  return <div className="text-slate-550 text-xs">Sin datos disponibles.</div>;
+                                  return <div className="text-slate-500 text-xs py-8">Sin datos disponibles.</div>;
                               }
                               
                               return (
-                                <>
-                                  <div className="w-full sm:w-[60%] h-full">
-                                    <ResponsiveContainer width="100%" height="100%">
-                                      <PieChart>
-                                        <Pie
-                                          data={data}
-                                          cx="50%"
-                                          cy="50%"
-                                          innerRadius={55}
-                                          outerRadius={75}
-                                          paddingAngle={4}
-                                          dataKey="value"
-                                        >
-                                          {data.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={entry.color} />
-                                          ))}
-                                        </Pie>
-                                        <Tooltip 
-                                          contentStyle={{ background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
-                                          itemStyle={{ fontSize: '11px' }}
-                                        />
-                                      </PieChart>
-                                    </ResponsiveContainer>
-                                  </div>
-                                  <div className="flex flex-col gap-2 w-full sm:w-[40%] text-left">
-                                    {data.map((entry, idx) => (
-                                      <div key={idx} className="flex items-center gap-2">
-                                        <span className="h-3 w-3 rounded-full" style={{ backgroundColor: entry.color }}></span>
-                                        <span className="text-[10px] text-slate-300 font-semibold">{entry.name}: <strong className="text-white font-mono">{Math.round(entry.value)} hrs</strong></span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </>
+                                <ResponsiveContainer width="100%" height="100%">
+                                  <PieChart>
+                                    <Pie
+                                      data={data}
+                                      cx="50%"
+                                      cy="50%"
+                                      innerRadius={45}
+                                      outerRadius={65}
+                                      paddingAngle={4}
+                                      dataKey="value"
+                                    >
+                                      {data.map((entry, index) => (
+                                        <Cell key={`cell-${index}`} fill={entry.color} />
+                                      ))}
+                                    </Pie>
+                                    <Tooltip 
+                                      contentStyle={{ 
+                                        background: '#020617', 
+                                        border: '1px solid rgba(255,255,255,0.15)', 
+                                        borderRadius: '12px',
+                                        padding: '8px 12px'
+                                      }}
+                                      itemStyle={{ fontSize: '11px', color: '#f8fafc' }}
+                                    />
+                                  </PieChart>
+                                </ResponsiveContainer>
                               );
                             })() : (
                               <div className="h-full flex items-center justify-center text-slate-500 text-xs">Cargando gráfico...</div>
                             )}
                           </div>
+
+                          {resumenSedes && (
+                            <div className="flex flex-col gap-1.5 w-full text-left max-h-[90px] overflow-y-auto px-2 mt-3 border-t border-slate-900/60 pt-2">
+                              {resumenSedes.map((s, idx) => {
+                                const colors = ['#6366f1', '#10b981', '#f59e0b', '#3b82f6', '#ec4899', '#8b5cf6'];
+                                const color = colors[idx % colors.length];
+                                if (s.horasTotales <= 0) return null;
+                                return (
+                                  <div key={idx} className="flex items-center gap-2">
+                                    <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: color }}></span>
+                                    <span className="text-[9px] text-slate-400 font-semibold truncate">{s.sede}: <strong className="text-slate-200 font-mono">{Math.round(s.horasTotales * 100) / 100} hrs</strong></span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
 
-                        {/* Gráfico 3: Ratio de Alertas "Fuera de Rango" (Line Chart) */}
-                        <div className="chart-card bg-slate-950/40 p-4 border border-slate-900 rounded-xl lg:col-span-2">
-                          <h4 className="chart-card-title text-sm font-bold text-white m-0">Ratio de Alertas "Fuera de Rango"</h4>
-                          <p className="chart-card-subtitle text-[10px] text-slate-500 m-0 mt-0.5">Porcentaje diario de marcaciones realizadas fuera del perímetro permitido</p>
-                          <div className="h-[250px] w-full mt-4">
-                            {ratioFueraRango && ratioFueraRango.length > 0 ? (
-                              <ResponsiveContainer width="100%" height="100%">
-                                <LineChart
-                                  data={ratioFueraRango}
-                                  margin={{ top: 10, right: 20, left: -20, bottom: 5 }}
-                                >
-                                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                                  <XAxis dataKey="dia" stroke="#64748b" fontSize={9} />
-                                  <YAxis stroke="#64748b" fontSize={9} unit="%" />
-                                  <Tooltip 
-                                    contentStyle={{ background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '8px' }}
-                                    labelStyle={{ color: '#e2e8f0', fontWeight: 'bold', fontSize: '11px' }}
-                                    itemStyle={{ fontSize: '11px' }}
-                                    formatter={(value, name, props) => {
-                                      if (name === 'ratio') return [`${value}%`, 'Ratio Fuera Perímetro'];
-                                      if (name === 'fueraCount') return [props.payload.fueraCount, 'Marcaciones Fuera'];
-                                      if (name === 'total') return [props.payload.total, 'Total Marcaciones'];
-                                      return [value, name];
-                                    }}
-                                  />
-                                  <Line type="monotone" dataKey="ratio" stroke="#ef4444" strokeWidth={2} activeDot={{ r: 5 }} dot={{ r: 2 }} name="ratio" />
-                                </LineChart>
-                              </ResponsiveContainer>
-                            ) : (
-                              <div className="h-full flex items-center justify-center text-slate-500 text-xs">Sin datos disponibles.</div>
-                            )}
+                        {/* Fila siguiente: 2 columnas balanceadas */}
+                        <div className="lg:col-span-3 grid grid-cols-1 lg:grid-cols-2 gap-8">
+                          {/* Gráfico 3: Ratio de Alertas "Fuera de Rango" (Line Chart) */}
+                          <div className="chart-card bg-slate-950/40 p-4 border border-slate-900 rounded-xl">
+                            <h4 className="chart-card-title text-sm font-bold text-white m-0">Ratio de Alertas "Fuera de Rango"</h4>
+                            <p className="chart-card-subtitle text-[10px] text-slate-500 m-0 mt-0.5">Porcentaje diario de marcaciones realizadas fuera del perímetro permitido</p>
+                            <div className="h-[250px] w-full mt-4">
+                              {ratioFueraRango && ratioFueraRango.length > 0 ? (
+                                <ResponsiveContainer width="100%" height={250}>
+                                  <LineChart
+                                    data={ratioFueraRango}
+                                    margin={{ top: 10, right: 20, left: -20, bottom: 5 }}
+                                  >
+                                    <defs>
+                                      <linearGradient id="alertLineGradient" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="0%" stopColor="#ef4444" stopOpacity={1} />
+                                        <stop offset="100%" stopColor="#fca5a5" stopOpacity={0.8} />
+                                      </linearGradient>
+                                    </defs>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                                    <XAxis dataKey="dia" stroke="#64748b" fontSize={9} />
+                                    <YAxis stroke="#64748b" fontSize={9} unit="%" />
+                                    <Tooltip 
+                                      contentStyle={{ 
+                                        background: '#020617', 
+                                        border: '1px solid rgba(239,68,68,0.25)', 
+                                        borderRadius: '12px',
+                                        padding: '12px 16px',
+                                        boxShadow: '0 10px 15px -3px rgba(0,0,0,0.5)'
+                                      }}
+                                      labelStyle={{ color: '#f8fafc', fontWeight: 'bold', fontSize: '11px' }}
+                                      itemStyle={{ fontSize: '11px' }}
+                                      formatter={(value, name, props) => {
+                                        if (name === 'ratio') return [`${value}%`, 'Ratio Fuera Perímetro'];
+                                        if (name === 'fueraCount') return [props.payload.fueraCount, 'Marcaciones Fuera'];
+                                        if (name === 'total') return [props.payload.total, 'Total Marcaciones'];
+                                        return [value, name];
+                                      }}
+                                    />
+                                    <Line type="monotone" dataKey="ratio" stroke="url(#alertLineGradient)" strokeWidth={3} activeDot={{ r: 5 }} dot={{ r: 2 }} name="ratio" />
+                                  </LineChart>
+                                </ResponsiveContainer>
+                              ) : (
+                                <div className="h-full flex items-center justify-center text-slate-500 text-xs">Sin datos disponibles.</div>
+                              )}
+                            </div>
                           </div>
-                        </div>
 
-                        {/* Gráfico 4: Densidad de Turnos Diurnos vs Nocturnos (Stacked Bar) */}
-                        <div className="chart-card bg-slate-950/40 p-4 border border-slate-900 rounded-xl lg:col-span-2">
-                          <h4 className="chart-card-title text-sm font-bold text-white m-0">Densidad de Turnos (Diurnos vs Nocturnos)</h4>
-                          <p className="chart-card-subtitle text-[10px] text-slate-500 m-0 mt-0.5">Cantidad acumulada de guardias diurnas y nocturnas por día de entrada</p>
-                          <div className="h-[250px] w-full mt-4">
-                            {densidadTurnos && densidadTurnos.length > 0 ? (
-                              <ResponsiveContainer width="100%" height="100%">
-                                <BarChart
-                                  data={densidadTurnos}
-                                  margin={{ top: 10, right: 20, left: -20, bottom: 5 }}
-                                >
-                                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                                  <XAxis dataKey="dia" stroke="#64748b" fontSize={9} />
-                                  <YAxis stroke="#64748b" fontSize={9} />
-                                  <Tooltip 
-                                    contentStyle={{ background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
-                                    itemStyle={{ fontSize: '11px' }}
-                                  />
-                                  <Legend wrapperStyle={{ fontSize: '10px' }} />
-                                  <Bar dataKey="diurnos" stackId="a" fill="#3b82f6" radius={[0, 0, 0, 0]} name="Diurnos" />
-                                  <Bar dataKey="nocturnos" stackId="a" fill="#8b5cf6" radius={[2, 2, 0, 0]} name="Nocturnos" />
-                                </BarChart>
-                              </ResponsiveContainer>
-                            ) : (
-                              <div className="h-full flex items-center justify-center text-slate-500 text-xs">Sin datos disponibles.</div>
-                            )}
+                          {/* Gráfico 4: Densidad de Turnos Diurnos vs Nocturnos (Stacked Bar) */}
+                          <div className="chart-card bg-slate-950/40 p-4 border border-slate-900 rounded-xl">
+                            <h4 className="chart-card-title text-sm font-bold text-white m-0">Densidad de Turnos (Diurnos vs Nocturnos)</h4>
+                            <p className="chart-card-subtitle text-[10px] text-slate-500 m-0 mt-0.5">Cantidad acumulada de guardias diurnas y nocturnas por día de entrada</p>
+                            <div className="h-[250px] w-full mt-4">
+                              {densidadTurnos && densidadTurnos.length > 0 ? (
+                                <ResponsiveContainer width="100%" height={250}>
+                                  <BarChart
+                                    data={densidadTurnos}
+                                    margin={{ top: 10, right: 20, left: -20, bottom: 5 }}
+                                  >
+                                    <defs>
+                                      <linearGradient id="diurnosGradient" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.85} />
+                                        <stop offset="100%" stopColor="#60a5fa" stopOpacity={0.7} />
+                                      </linearGradient>
+                                      <linearGradient id="nocturnosGradient" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.85} />
+                                        <stop offset="100%" stopColor="#a78bfa" stopOpacity={0.7} />
+                                      </linearGradient>
+                                    </defs>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                                    <XAxis dataKey="dia" stroke="#64748b" fontSize={9} />
+                                    <YAxis stroke="#64748b" fontSize={9} />
+                                    <Tooltip 
+                                      contentStyle={{ 
+                                        background: '#020617', 
+                                        border: '1px solid rgba(99,102,241,0.25)', 
+                                        borderRadius: '12px',
+                                        padding: '12px 16px',
+                                        boxShadow: '0 10px 15px -3px rgba(0,0,0,0.5)'
+                                      }}
+                                      labelStyle={{ color: '#f8fafc', fontWeight: 'bold', fontSize: '11px' }}
+                                      itemStyle={{ fontSize: '11px' }}
+                                    />
+                                    <Legend wrapperStyle={{ fontSize: '10px' }} />
+                                    <Bar dataKey="diurnos" stackId="a" fill="url(#diurnosGradient)" name="Diurnos" />
+                                    <Bar dataKey="nocturnos" stackId="a" fill="url(#nocturnosGradient)" radius={[6, 6, 0, 0]} name="Nocturnos" />
+                                  </BarChart>
+                                </ResponsiveContainer>
+                              ) : (
+                                <div className="h-full flex items-center justify-center text-slate-500 text-xs">Sin datos disponibles.</div>
+                              )}
+                            </div>
                           </div>
                         </div>
 
                         {/* Tabla 5: Resumen por Sede */}
-                        <div className="chart-card bg-slate-950/40 p-4 border border-slate-900 rounded-xl lg:col-span-2">
+                        <div className="chart-card bg-slate-950/40 p-4 border border-slate-900 rounded-xl lg:col-span-3">
                           <h4 className="chart-card-title text-sm font-bold text-white m-0">Resumen Analítico por Sede Clínica</h4>
                           <p className="chart-card-subtitle text-[10px] text-slate-500 m-0 mt-0.5">Métricas de control operativo y estado por local</p>
                           <div className="admin-table-wrapper overflow-x-auto w-full border border-slate-900/60 rounded-xl bg-slate-950/40 mt-4">
