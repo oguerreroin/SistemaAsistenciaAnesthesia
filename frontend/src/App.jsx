@@ -58,6 +58,9 @@ const isLocalEnv =
 const API_BASE = isLocalEnv 
   ? `http://${window.location.hostname}:5000/api` 
   : '/api';
+const STORAGE_BASE = isLocalEnv
+  ? `http://${window.location.hostname}:5000`
+  : '';
 const formatRangeDates = (startStr, endStr, range) => {
   if (!startStr || !endStr) return '';
   // Reemplazar T y Z para evitar corrimientos horaria en navegadores cliente
@@ -2474,7 +2477,7 @@ function App() {
                             <p className="chart-card-subtitle text-[10px] text-slate-500 m-0 mt-0.5">Porcentaje de horas de guardia por clínica</p>
                           </div>
                           
-                          <div className="w-full h-44 flex items-center justify-center relative mt-3">
+                          <div className="w-full h-44 relative mt-3">
                             {resumenSedes ? (() => {
                               const colors = ['#6366f1', '#10b981', '#f59e0b', '#3b82f6', '#ec4899', '#8b5cf6'];
                               const data = resumenSedes.map((s, idx) => ({
@@ -2488,7 +2491,7 @@ function App() {
                               }
                               
                               return (
-                                <ResponsiveContainer width="100%" height="100%">
+                                <ResponsiveContainer width="100%" height={176}>
                                   <PieChart>
                                     <Pie
                                       data={data}

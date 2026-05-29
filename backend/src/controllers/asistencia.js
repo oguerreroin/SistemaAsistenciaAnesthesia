@@ -1531,6 +1531,10 @@ exports.exportarReporteMatricial = async (req, res) => {
     footerRow.height = 22;
     footerRow.getCell(1).alignment = { horizontal: 'left' };
 
+    // Configurar cabeceras de respuesta para Excel
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=reporte_matricial_${nombreMes.toLowerCase()}_${anio}.xlsx`);
+
     // Send response
     await workbook.xlsx.write(res);
     res.end();
